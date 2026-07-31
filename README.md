@@ -79,6 +79,12 @@ and the COCKS pages (index, articles, listings, subscriptions, endoscope search)
 Anything not covered renders as the untouched legacy site, and any parser failure on a
 covered page falls back to the legacy page rather than a broken one.
 
+## To do
+
+- [ ] Get listed on Greasy Fork — or package as a dedicated browser extension
+- [ ] Config/settings panel (toggle features like the imgur relay, external-link behaviour, background fetches)
+- [ ] Alternative colour schemes
+
 ## Privacy / external requests
 
 - Cast, director, and rating info comes from IMDB's public suggestion API; Letterboxd
