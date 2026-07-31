@@ -38,10 +38,11 @@ Updates are picked up automatically through Tampermonkey's update checks
 
 ### Recommended Tampermonkey settings
 
-- **Inject Mode: Instant** — Tampermonkey Dashboard → Settings → set *Config mode*
-  to **Advanced** → scroll to *Experimental* → set **Inject Mode** to **Instant**.
-  The script cloaks the page at `document-start` so the legacy UI never flashes;
-  Instant mode guarantees that cloak beats the first paint.
+- **Early injection** — modern (MV3) Tampermonkey injects scripts late by default,
+  which can let the legacy UI flash before the script's dark cloak lands. Fix:
+  Tampermonkey Dashboard → Settings → set *Config mode* to **Advanced** →
+  section *Security* → set **Content Script API** to **UserScripts API Dynamic**.
+  (This replaces the old MV2-era "Inject Mode: Instant" setting.)
 
 No other settings are needed — the script's cross-origin requests (IMDB cast/crew,
 Letterboxd links) are declared via `@connect` and work out of the box.
@@ -57,6 +58,9 @@ injects, e.g. on cold browser starts), add the companion cloak style:
    **[Install pre-render cloak](https://raw.githubusercontent.com/maxh0p/cinemageddon-redux/main/extras/cg-redux-cloak.user.css)**
 
    Stylus recognises the UserCSS format and opens its install screen.
+
+3. In Stylus' own settings, enable the *Advanced* option
+   **Instant injection via synchronous XHR** so the cloak applies before first paint.
 
 The style hides the page until the userscript signals it has rendered
 (a `data-cgx-ready` attribute on `<html>`), and **fails open**: if the userscript
