@@ -1,0 +1,24 @@
+/* ==UserStyle==
+@name         Cinemageddon Redux — pre-render cloak
+@namespace    cg-redux
+@version      1.0.0
+@description  Hides the legacy page until Cinemageddon Redux renders, so the 2004 UI never flashes. Fails open: the page reveals itself after 3s even if the userscript never runs.
+@author       maxh0p
+@license      MIT
+==/UserStyle== */
+@-moz-document domain("cinemageddon.net") {
+  /* The userscript stamps data-cgx-ready on <html> once it has rendered
+     (or decided to leave a page as legacy). Until then: dark canvas,
+     hidden body. The animation is the fail-safe — if Tampermonkey never
+     runs at all, the body reveals itself after 3 seconds. */
+  html:not([data-cgx-ready]) {
+    background: #1e1c19 !important;
+  }
+  html:not([data-cgx-ready]) body {
+    visibility: hidden;
+    animation: cgx-failopen 0s 3s forwards;
+  }
+  @keyframes cgx-failopen {
+    to { visibility: visible; }
+  }
+}
