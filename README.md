@@ -10,10 +10,13 @@ each page client-side — no server access, no API, nothing to install beyond th
 
 ## Features
 
-- Warm dark theme across the whole site, with a sticky top bar (ratio, buffer, credits, PMs) and scrollable sidebar
+- Two colour schemes — **Warm** (brown dark) and **Cold** (neutral graphite) — switchable from the top bar
+- Sticky top bar (ratio, buffer, credits, PMs) and a scrollable sidebar that keeps the current page in view
 - Browse as rich cards: covers, tags, seeder/leecher/snatch counts, featured shelf, sort chips
-- Torrent details hero card with poster zoom, director/cast (fetched from IMDB), and one-click **IMDB / Letterboxd / Stremio / DMM** buttons
+- Torrent details hero card with poster zoom, director/cast (fetched from IMDB), one-click **IMDB / Letterboxd / Stremio / DMM** buttons, and an inline comment box
 - Forums, PMs, and comments restyled with proper post cards, quote/edit buttons, and BBCode rendering (including working `[hide]` spoilers)
+- Every post box gets the same editor: BBCode toolbar, smilie picker, this site's own BBCodes (read live from `tags.php`), and an expandable live preview
+- Collapsible panels remember whether you left them open
 - Modernised forms: upload, profile edit, signup, PM compose, request pages
 - User profiles as info-tile cards with country flag, action buttons, collapsible cigar shelves, and full-width BBCode Info section
 - Friends/blocks as user cards, top-ten medals, site stats with clean bar charts, COCKS pages, helpdesk, site log, and ~45 routes in total
@@ -67,12 +70,16 @@ The style hides the page until the userscript signals it has rendered
 never runs — Tampermonkey disabled, script updating, whatever — the page reveals
 itself after 3 seconds. Safe to leave enabled permanently.
 
+The cloak's canvas colour is fixed to the Warm scheme's background — a static
+style can't read the userscript's stored choice — but both schemes are dark, so
+the difference is imperceptible.
+
 ## Page coverage
 
 Reworked: home/news, browse, torrent details, upload, requests, credits, featurama,
 upload competitions, random trailer, top ten, site stats, ranks, invites, IRC/chat,
 forums (boards, threads, compose/edit/quote), messages (inbox, sentbox, view, compose),
-users, user details, friends & blocks, bookmarks, reseeds, snatches, cigars, tags, polls,
+users, user details, friends & blocks, bookmarks, reseeds, snatches, cigars, tags, smilies, polls,
 staff, site log, helpdesk, help articles, rules, donate, login, signup, profile edit,
 and the COCKS pages (index, articles, listings, subscriptions, endoscope search).
 
@@ -83,7 +90,6 @@ covered page falls back to the legacy page rather than a broken one.
 
 - [ ] Get listed on Greasy Fork — or package as a dedicated browser extension
 - [ ] Config/settings panel (toggle features like the imgur relay, external-link behaviour, background fetches)
-- [ ] Alternative colour schemes
 
 ## Privacy / external requests
 

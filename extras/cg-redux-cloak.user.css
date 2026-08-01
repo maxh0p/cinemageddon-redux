@@ -1,7 +1,7 @@
 /* ==UserStyle==
 @name         Cinemageddon Redux — pre-render cloak
 @namespace    cg-redux
-@version      1.0.0
+@version      1.1.0
 @description  Hides the legacy page until Cinemageddon Redux renders, so the 2004 UI never flashes. Fails open: the page reveals itself after 3s even if the userscript never runs.
 @author       maxh0p
 @license      MIT
@@ -11,8 +11,11 @@
      (or decided to leave a page as legacy). Until then: dark canvas,
      hidden body. The animation is the fail-safe — if Tampermonkey never
      runs at all, the body reveals itself after 3 seconds. */
+  /* Matches the default (Warm) scheme's background. A static style can't
+     read the userscript's stored scheme, but both schemes are dark so the
+     pre-render canvas blends in either way. */
   html:not([data-cgx-ready]) {
-    background: #1e1c19 !important;
+    background: #171512 !important;
   }
   html:not([data-cgx-ready]) body {
     visibility: hidden;

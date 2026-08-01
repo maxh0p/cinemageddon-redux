@@ -2,7 +2,7 @@
 // @name         Cinemageddon Redux
 // @namespace    cg-redux
 // @description  Modern frontend rework for cinemageddon.net, rendered from the legacy server HTML
-// @version      0.22.57
+// @version      0.23.8
 // @author       maxh0p
 // @license      MIT
 // @icon         https://cinemageddon.net/favicon.ico
@@ -65,6 +65,7 @@
     '/comment.php': renderCommentComposer,
     '/cigars.php': renderCigars,
     '/tags.php': renderTags,
+    '/smilies.php': renderSmilies,
     '/donate.php': renderHelpArticle,
   };
 
@@ -73,12 +74,78 @@
     ROUTES[location.pathname] ||
     (location.pathname.startsWith('/help/') ? renderHelpArticle : undefined);
 
+  /* --------------------------------- themes ---------------------------------- */
+  // Every themeable value is a custom property on #cg-redux-root, so a scheme is
+  // just a different set of them and switching is one attribute flip. Declared up
+  // here because the pre-render cloak needs the background colour before anything
+  // else runs.
+  //
+  // Roles, so new schemes stay coherent:
+  //   bg/panel/panel2  three surface depths, back to front
+  //   text/muted/faint three text weights
+  //   accent/accent2   the brand pair (accent2 is the link/hover colour)
+  //   onAccent         ink that sits ON an accent-filled surface
+  //   lineSoft/line/lineStrong  borders, quietest to loudest
+  //   hair/hairStrong/wash      overlays that tint whatever is beneath them
+  //   sink             recessed strips (post headers), backdrop = modal scrim
+  //   tile             filter applied to CG's /pic/bg.png stripe texture
+
+  const THEMES = {
+    warm: {
+      label: 'Warm',
+      scheme: 'dark',
+      bg: '#171512', panel: '#262320', panel2: '#2f2b26',
+      text: '#e8e6e1', muted: '#9a9890', faint: '#7b7466',
+      accent: '#f0a028', accentRgb: '240, 160, 40', accent2: '#ffbe55', onAccent: '#171512',
+      green: '#7dc46a', greenRgb: '125, 196, 106', red: '#e06c5a', redRgb: '224, 108, 90',
+      lineSoft: '#322e28', line: '#3b362e', lineStrong: '#4a443a', lineHard: '#000',
+      hover: '#35312a',
+      hair: 'rgba(255, 255, 255, 0.06)', hairStrong: 'rgba(255, 255, 255, 0.1)', wash: 'rgba(255, 255, 255, 0.025)',
+      sink: 'rgba(0, 0, 0, 0.22)', backdrop: 'rgba(13, 12, 10, 0.86)',
+      shadow: '0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 22px rgba(0, 0, 0, 0.22)',
+      shadowLg: '0 18px 44px rgba(0, 0, 0, 0.6)',
+      sbThumb: '#4a443a', sbTrack: '#1f1d19',
+      // sepia+saturate warm the neutral-grey tile to match the brown theme
+      tile: 'brightness(0.45) sepia(0.6) saturate(1.15)',
+    },
+    cold: {
+      label: 'Cold',
+      scheme: 'dark',
+      bg: '#0f1013', panel: '#17181c', panel2: '#1f2126',
+      text: '#e6e7ea', muted: '#94979f', faint: '#70747d',
+      accent: '#f0a028', accentRgb: '240, 160, 40', accent2: '#ffbe55', onAccent: '#0f1013',
+      green: '#57c877', greenRgb: '87, 200, 119', red: '#f0655d', redRgb: '240, 101, 93',
+      lineSoft: '#23252b', line: '#2b2e35', lineStrong: '#3a3e48', lineHard: '#000',
+      hover: '#24262d',
+      hair: 'rgba(255, 255, 255, 0.06)', hairStrong: 'rgba(255, 255, 255, 0.1)', wash: 'rgba(255, 255, 255, 0.025)',
+      sink: 'rgba(0, 0, 0, 0.25)', backdrop: 'rgba(9, 10, 13, 0.86)',
+      shadow: '0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 22px rgba(0, 0, 0, 0.25)',
+      shadowLg: '0 18px 44px rgba(0, 0, 0, 0.62)',
+      sbThumb: '#3a3e48', sbTrack: '#131418',
+      tile: 'brightness(0.4) saturate(0.6)',
+    },
+  };
+  const DEFAULT_THEME = 'warm';
+
+  // Read straight from localStorage rather than store.get() — this runs at
+  // document-start, before store is initialised.
+  function themeName() {
+    try {
+      const v = JSON.parse(localStorage.getItem('cgx:theme'));
+      if (v === 'classic') return 'warm'; // short-lived 0.23.x keys
+      if (v === 'modern') return 'cold';
+      if (v && THEMES[v]) return v;
+    } catch {}
+    return DEFAULT_THEME;
+  }
+  const theme = THEMES[themeName()];
+
   // Cloak the page pre-render so the legacy UI never flashes. Hiding <body>
   // (not <html>) keeps the html background painting, so the interstitial is
-  // theme-dark instead of a white flash.
+  // theme-coloured instead of a white flash.
   const cloak = document.createElement('style');
   cloak.id = 'cg-cloak';
-  cloak.textContent = 'html{background:#1e1c19 !important}html>body{visibility:hidden !important}';
+  cloak.textContent = `html{background:${theme.bg} !important}html>body{visibility:hidden !important}`;
   if (route) document.documentElement.appendChild(cloak);
 
   function uncloak() {
@@ -272,16 +339,30 @@
       : [];
 
     // Featured refresh countdown — legacy renders it as static text in the
-    // heading above the featured table ("… Next update in 23h 13m 48s.")
+    // heading above the featured table ("… Next update in 23h 13m 48s.").
+    // Matched against the smallest element in the document that still contains
+    // the phrase, rather than the featured table's previous sibling: the note
+    // has moved around inside legacy's markup before, and losing the countdown
+    // to a stray wrapper element is the failure mode we keep hitting.
     let featuredNote = '';
     let featuredEta = null;
-    const featHead = featuredTable && featuredTable.previousElementSibling;
-    if (featHead && /next update/i.test(txt(featHead))) {
-      featuredNote = txt(featHead).replace(/\s+/g, ' ').trim();
-      const m = featuredNote.match(/next update in\s+(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s)?/i);
-      if (m && (m[1] || m[2] || m[3])) {
-        featuredEta = (+(m[1] || 0)) * 3600 + (+(m[2] || 0)) * 60 + (+(m[3] || 0));
+    const noteHost = [...doc.querySelectorAll('td, div, p, b, font, span, h1, h2')]
+      .filter((n) => /next update in/i.test(n.textContent || ''))
+      .pop();
+    if (noteHost) {
+      featuredNote = txt(noteHost);
+      // Should the phrase ever land in a big wrapper, keep only the countdown
+      // sentence and the one before it (that's where the "50% bonus" lives).
+      if (featuredNote.length > 220) {
+        const parts = featuredNote.split(/(?<=\.)\s+/);
+        const i = parts.findIndex((s) => /next update in/i.test(s));
+        if (i >= 0) featuredNote = parts.slice(Math.max(0, i - 1), i + 1).join(' ').trim();
       }
+      const m = featuredNote.match(
+        /next update in\s+(?:(\d+)\s*d\w*\s*)?(?:(\d+)\s*h\w*\s*)?(?:(\d+)\s*m\w*\s*)?(?:(\d+)\s*s\w*)?/i
+      );
+      if (m && (m[1] || m[2] || m[3] || m[4]))
+        featuredEta = +(m[1] || 0) * 86400 + +(m[2] || 0) * 3600 + +(m[3] || 0) * 60 + +(m[4] || 0);
     }
 
     return {
@@ -397,28 +478,62 @@
       );
     }
 
-    return el(
+    // Several sidebar links can share a path — Browse is /browse.php and My
+    // Uploads is /browse.php?owner=<id>. Score every link and highlight only
+    // the best match, so the specific link wins instead of the bare one.
+    //   3 = same path, same query   2 = same path, link's params are a subset
+    //   1 = same path, link has no query at all
+    // `page` is dropped from both sides: paging through My Uploads is still
+    // My Uploads.
+    const hereParams = new URLSearchParams(location.search);
+    hereParams.delete('page');
+    const score = (href) => {
+      let u;
+      try {
+        u = new URL(href);
+      } catch {
+        return 0;
+      }
+      if (u.pathname !== location.pathname) return 0;
+      const mine = new URLSearchParams(u.search);
+      mine.delete('page');
+      const keys = [...mine.keys()];
+      if (!keys.length) return 1;
+      if (!keys.every((k) => hereParams.get(k) === mine.get(k))) return 0;
+      return keys.length === [...hereParams.keys()].length ? 3 : 2;
+    };
+    const scored = sections.map((s) => s.links.map((l) => score(l.href)));
+    const best = Math.max(0, ...scored.flat());
+
+    const aside = el(
       'aside',
       { class: 'cgx-sidebar' },
-      sections.map((s) =>
+      sections.map((s, si) =>
         el(
           'div',
           { class: 'cgx-side-section' },
           el('h3', {}, s.title),
-          s.links.map((l) => {
-            let cls = 'cgx-side-link';
-            try {
-              const u = new URL(l.href);
-              // Query-carrying links (e.g. browse.php?owner=…) only count as
-              // active when the query matches too.
-              if (u.pathname === location.pathname && (!u.search || u.search === location.search)) cls += ' active';
-            } catch {}
-            return el('a', { class: cls, href: l.href }, l.label);
-          })
+          s.links.map((l, li) =>
+            el('a', { class: 'cgx-side-link' + (best && scored[si][li] === best ? ' active' : ''), href: l.href }, l.label)
+          )
         )
       ),
       searchBlock
     );
+
+    // The sidebar is its own scroll container, so a link far down the list can
+    // land out of sight. Nudge it into view by setting scrollTop directly —
+    // scrollIntoView() would drag the whole window along with it.
+    requestAnimationFrame(() => {
+      const active = aside.querySelector('.cgx-side-link.active');
+      if (!active) return;
+      const pad = 24;
+      const top = active.offsetTop - aside.clientHeight / 2 + active.offsetHeight / 2;
+      if (active.offsetTop < aside.scrollTop + pad || active.offsetTop + active.offsetHeight > aside.scrollTop + aside.clientHeight - pad) {
+        aside.scrollTop = Math.max(0, top);
+      }
+    });
+    return aside;
   }
 
   // Radiation trefoil (the mark from CG's logo) as an inline SVG; colored via
@@ -435,12 +550,72 @@
     return wrap;
   }
 
+  // Envelope for the PM chip — the ✉ glyph it replaces rendered tiny and
+  // inconsistently (it's emoji-presentation on some platforms, text on others).
+  function mailMark(unread) {
+    const wrap = el('span', { class: 'cgx-mail' + (unread ? ' unread' : '') });
+    wrap.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" ' +
+      'stroke-linecap="round" stroke-linejoin="round">' +
+      '<rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/>' +
+      '<path d="M3 7l8.1 5.6a1.6 1.6 0 0 0 1.8 0L21 7"/>' +
+      '</svg>';
+    return wrap;
+  }
+
+  // Scheme picker. Swapping themes means re-emitting the whole stylesheet
+  // (the values are baked in, not layered), so it just stores and reloads.
+  function themeMenu() {
+    const current = themeName();
+    const menu = el('details', { class: 'cgx-theme-menu' });
+    menu.append(
+      el('summary', { class: 'cgx-stat', title: `Colour scheme — ${THEMES[current].label}` }, '◐'),
+      el(
+        'div',
+        { class: 'cgx-theme-list' },
+        Object.entries(THEMES).map(([key, t]) =>
+          el(
+            'button',
+            {
+              class: 'cgx-theme-opt' + (key === current ? ' on' : ''),
+              type: 'button',
+              onclick: () => {
+                store.set('theme', key);
+                location.reload();
+              },
+            },
+            el('span', { class: 'sw', style: `background: ${t.panel}; border-color: ${t.accent}` }),
+            t.label
+          )
+        )
+      )
+    );
+    // Click-away close, so the list doesn't linger once you've moved on.
+    document.addEventListener('click', (e) => {
+      if (menu.open && !menu.contains(e.target)) menu.open = false;
+    });
+    return menu;
+  }
+
+  // The topbar wraps to a second row on narrow windows; the sidebar's sticky
+  // offset and max-height are derived from its real height rather than a
+  // guess, so nothing ends up parked below the fold.
+  function armTopbarHeight(root, topbar) {
+    // offsetHeight, not getBoundingClientRect(): the root's zoom: 1.1 scales
+    // the rect but not offsetHeight, and `top:`/`calc()` want unzoomed px.
+    const sync = () => root.style.setProperty('--topbar-h', topbar.offsetHeight + 'px');
+    sync();
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(sync).observe(topbar);
+    else addEventListener('resize', sync);
+  }
+
   function renderShell(doc, pageContent) {
     const user = parseUserBar(doc);
+    rememberHelpLinks(doc);
     const navOpen = store.get('sidebarOpen', true);
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.22.57', class: navOpen ? null : 'nav-closed' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.23.8', class: navOpen ? null : 'nav-closed' },
       el(
         'header',
         { class: 'cgx-topbar' },
@@ -509,14 +684,19 @@
                 user.pm
                   ? el(
                       'a',
-                      { class: 'cgx-stat', href: user.pmHref || '/message.php', title: 'Private messages' },
-                      el('span', { class: 'lbl' }, '✉'),
+                      { class: 'cgx-stat cgx-pm', href: user.pmHref || '/message.php', title: 'Private messages' },
+                      mailMark(Number(user.pmNew) > 0),
                       el('span', { class: 'val' }, user.pm),
                       Number(user.pmNew) > 0 ? el('span', { class: 'cgx-pm-badge' }, user.pmNew + ' new') : null
                     )
                   : null,
+                // Scheme picker sits with the pills; logout stays the last item.
+                themeMenu(),
                 el('a', { href: user.logoutHref, class: 'cgx-logout' }, 'logout'),
-              ]
+              ],
+          // The picker belongs to the reader, not the session, so logged-out
+          // pages (login/welcome) still get one.
+          user ? null : themeMenu()
         )
       ),
       el('div', { class: 'cgx-body' }, buildSidebar(doc), el('main', { class: 'cgx-main' }, pageContent))
@@ -524,6 +704,8 @@
 
     injectStyles();
     doc.body.appendChild(root);
+    armTopbarHeight(root, root.querySelector('.cgx-topbar'));
+    armImageSpinners(root);
     armImgurProxy(root);
     armExternalLinks(root);
     armSpoilers(root); // catch-all for clones that skipped legacyEmbed (idempotent — armed links lose their href)
@@ -580,6 +762,46 @@
             if (n.nodeType !== 1) return;
             if (n.tagName === 'IMG') fix(n);
             else if (n.querySelectorAll) n.querySelectorAll('img').forEach(fix);
+          });
+        }
+      }
+    }).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['src'] });
+  }
+
+  // Every image that has to travel — covers, screenshots, avatars, embeds —
+  // sits on a spinning trefoil until it lands. Deliberately NOT a wrapper
+  // element: the placeholder is a background on the <img> itself, so no
+  // renderer's flex/grid/table layout gets an extra node shoved into it. The
+  // rotation is SMIL inside the data-URI SVG (CSS can't animate a background),
+  // and the mark is tinted per scheme via --spinner in injectStyles.
+  const SKIP_SPINNER = /\/pic\/|^data:|\.gif(\?|$)/i; // legacy furniture: smilies, flags, icons, rank art
+  function armImageSpinners(root) {
+    const done = (img) => img.classList.remove('cgx-imgloading');
+    const arm = (img) => {
+      if (img.classList.contains('cgx-imgloading') || img.dataset.cgxSpun) return;
+      const src = img.getAttribute('src') || '';
+      if (!src || SKIP_SPINNER.test(src)) return;
+      // These two carry their own, larger, centred spinner already.
+      if (img.closest('.cgx-posterbox, .cgx-modal')) return;
+      img.dataset.cgxSpun = '1';
+      if (img.complete && img.naturalWidth) return;
+      img.classList.add('cgx-imgloading');
+      img.addEventListener('load', () => done(img), { once: true });
+      img.addEventListener('error', () => done(img), { once: true });
+    };
+    root.querySelectorAll('img').forEach(arm);
+    new MutationObserver((muts) => {
+      for (const m of muts) {
+        if (m.type === 'attributes') {
+          if (m.target.tagName === 'IMG') {
+            delete m.target.dataset.cgxSpun;
+            arm(m.target);
+          }
+        } else {
+          m.addedNodes.forEach((n) => {
+            if (n.nodeType !== 1) return;
+            if (n.tagName === 'IMG') arm(n);
+            else if (n.querySelectorAll) n.querySelectorAll('img').forEach(arm);
           });
         }
       }
@@ -1098,9 +1320,16 @@
         const fmt = () => {
           const s = Math.max(0, Math.round((deadline - Date.now()) / 1000));
           if (!s) return 'refreshing…';
-          const h = Math.floor(s / 3600);
+          const d = Math.floor(s / 86400);
+          const h = Math.floor((s % 86400) / 3600);
           const m = Math.floor((s % 3600) / 60);
-          return 'next update in ' + (h ? h + 'h ' : '') + (h || m ? m + 'm ' : '') + (s % 60) + 's';
+          return (
+            'next update in ' +
+            (d ? d + 'd ' : '') +
+            (d || h ? h + 'h ' : '') +
+            (d || h || m ? m + 'm ' : '') +
+            (s % 60) + 's'
+          );
         };
         countdown.textContent = fmt();
         setInterval(() => { countdown.textContent = fmt(); }, 1000);
@@ -1377,16 +1606,18 @@
       }
       body.append(tr);
     }
-    const attrs = { class: 'cgx-user-section' }; // all sections start collapsed
-    return el(
-      'details',
-      attrs,
-      el('summary', {}, title),
+    return rememberOpen(
       el(
-        'div',
-        { class: 'cgx-tbl-wrap' },
-        el('table', { class: 'cgx-tbl' }, el('thead', {}, el('tr', {}, headers.map((h) => el('th', {}, h)))), body)
-      )
+        'details',
+        { class: 'cgx-user-section' },
+        el('summary', {}, title),
+        el(
+          'div',
+          { class: 'cgx-tbl-wrap' },
+          el('table', { class: 'cgx-tbl' }, el('thead', {}, el('tr', {}, headers.map((h) => el('th', {}, h)))), body)
+        )
+      ),
+      title // sections default to collapsed until you say otherwise
     );
   }
 
@@ -1532,10 +1763,28 @@
     return wrap;
   }
 
+  // Make a <details> remember whether it was open. The key is the page's path
+  // plus the section's own label with digits stripped, so "Comments (14)" and
+  // "Comments (203+)" are the same panel — and a panel's state carries from one
+  // torrent/user/thread to the next, which is what you actually want out of
+  // "always show me the mediainfo".
+  function rememberOpen(details, label, fallbackOpen = false) {
+    const key = 'open:' + location.pathname + '|' + String(label).toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '');
+    // 'force' = the page context demands it open this once (e.g. you followed a
+    // link to comment page 3) — still recorded from here on.
+    const saved = store.get(key, null);
+    if (fallbackOpen === 'force' || (saved == null ? fallbackOpen : saved)) details.setAttribute('open', '');
+    else details.removeAttribute('open');
+    details.addEventListener('toggle', () => store.set(key, details.open));
+    return details;
+  }
+
   function collapsible(title, body, open = false) {
-    const attrs = { class: 'cgx-user-section' };
-    if (open) attrs.open = '';
-    return el('details', attrs, el('summary', {}, title), el('div', { class: 'cgx-section-body' }, body));
+    return rememberOpen(
+      el('details', { class: 'cgx-user-section' }, el('summary', {}, title), el('div', { class: 'cgx-section-body' }, body)),
+      title,
+      open
+    );
   }
 
   function parseDetails(doc) {
@@ -1776,6 +2025,52 @@
       ),
       el('div', { class: 'cgx-comment-body' }, legacyEmbed(c.bodyCell))
     );
+  }
+
+  // details.php has no comment box of its own — it only links out to
+  // comment.php. Pull that page's real form in here on demand (rather than
+  // reconstructing its fields and hoping) so you can reply without leaving
+  // the torrent.
+  function commentComposerPanel(doc) {
+    const tid = new URLSearchParams(location.search).get('id');
+    const link = [...doc.querySelectorAll('a[href*="comment.php"]')].find((a) =>
+      /action=add|add.*comment/i.test((a.getAttribute('href') || '') + ' ' + txt(a))
+    );
+    const href = link?.href || (tid ? `${location.origin}/comment.php?action=add&tid=${tid}` : null);
+    if (!href) return null;
+
+    const body = el('div', { class: 'cgx-section-body' });
+    let loaded = false;
+    const load = () => {
+      if (loaded) return;
+      loaded = true;
+      body.append(el('div', { class: 'cgx-hero-loading' }, radMark('spin'), 'Loading the comment box…'));
+      fetchDoc(href, (d) => {
+        const form = d && [...d.forms].find((f) => f.querySelector('textarea'));
+        body.textContent = '';
+        if (!form) {
+          body.append(
+            el('p', { class: 'cgx-hint' }, "Couldn't load the comment box here — "),
+            el('a', { href }, 'open it on its own page')
+          );
+          return;
+        }
+        const adopted = document.importNode(form, true);
+        // The fetched document has no base URL, so resolve the action against
+        // the page we pulled it from before the form is submitted from here.
+        adopted.action = new URL(form.getAttribute('action') || href, href).href;
+        adopted.classList.add('cgx-repform', 'cgx-reply');
+        body.append(adopted);
+        armFormEditors(adopted);
+      });
+    };
+    const panel = rememberOpen(
+      el('details', { class: 'cgx-user-section' }, el('summary', {}, 'Add a comment'), body),
+      'add-comment'
+    );
+    panel.addEventListener('toggle', () => panel.open && load());
+    if (panel.open) load();
+    return panel;
   }
 
   function renderDetails(doc) {
@@ -2069,9 +2364,10 @@
                 : null
             ),
             // Arriving via a comment-page link: open the section so you land on comments.
-            new URLSearchParams(location.search).has('page')
+            new URLSearchParams(location.search).has('page') ? 'force' : false
           )
-        : null
+        : null,
+      commentComposerPanel(doc)
     );
     renderShell(doc, content);
   }
@@ -2809,7 +3105,7 @@
 
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.22.57', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.23.8', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap' },
@@ -2859,7 +3155,7 @@
 
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.22.57', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.23.8', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap wide' },
@@ -2905,7 +3201,7 @@
     }
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.22.57', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.23.8', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap' },
@@ -3186,6 +3482,7 @@
           .map((c) => txt(c).trim())
       : [];
     if (form) form.classList.add('cgx-repform');
+    armFormEditors(form);
     renderShell(
       doc,
       el(
@@ -3728,7 +4025,8 @@
         el('h3', {}, 'Description'),
         notes.descr || descrNote,
         bbToolbar(ctl.descr),
-        ctl.descr
+        ctl.descr,
+        previewPanel(ctl.descr)
       ),
       el('section', { class: 'cgx-panel' }, el('h3', {}, 'Mediainfo'), ctl.mediainfo),
       el('div', { class: 'cgx-upfoot' }, submitBtn)
@@ -3853,7 +4151,7 @@
           fieldFor('title', 'Custom title'),
           fieldFor('country', 'Country'),
           ctl.info
-            ? el('div', { class: 'cgx-upfield full' }, el('label', {}, 'Profile info'), bbToolbar(ctl.info), ctl.info)
+            ? el('div', { class: 'cgx-upfield full' }, el('label', {}, 'Profile info'), bbToolbar(ctl.info), ctl.info, previewPanel(ctl.info))
             : null
         )
       ),
@@ -3887,7 +4185,7 @@
           'div',
           { class: 'cgx-upgrid' },
           ctl.signature
-            ? el('div', { class: 'cgx-upfield full' }, el('label', {}, 'Forum signature'), bbToolbar(ctl.signature), ctl.signature)
+            ? el('div', { class: 'cgx-upfield full' }, el('label', {}, 'Forum signature'), bbToolbar(ctl.signature), ctl.signature, previewPanel(ctl.signature))
             : null,
           fieldFor('topicsperpage', 'Topics per page'),
           fieldFor('postsperpage', 'Posts per page'),
@@ -3998,6 +4296,7 @@
     const form = [...doc.forms].find((f) => f.querySelector('textarea'));
     if (!form) throw new Error('no comment form');
     form.classList.add('cgx-repform', 'cgx-reply');
+    armFormEditors(form);
     const headTxt =
       [...doc.querySelectorAll('h1, td.colhead')].map((h) => txt(h)).find((s) => /add a comment/i.test(s)) || 'Add a comment';
     const tid = form.elements.tid?.value;
@@ -4078,8 +4377,72 @@
 
   // tags.php — BB code reference. One 4x2 table per tag:
   // Description / Syntax / Example / Result.
+  // Last resort for the reference pages: lift the biggest block of content out
+  // of the legacy table nest and show it in a styled panel. Not as good as a
+  // parsed layout, but far better than dropping back to the 2004 markup.
+  function legacyPage(doc, title) {
+    const holder =
+      [...doc.querySelectorAll('td.outer, td.embedded, td')]
+        .filter((c) => txt(c).length > 120 && !/community|torrents|personal|support/i.test(txt(c).slice(0, 200)))
+        .pop() || doc.body;
+    const clone = holder.cloneNode(true);
+    clone.querySelectorAll('form, input, select, script').forEach((n) => n.remove());
+    renderShell(
+      doc,
+      el(
+        'div',
+        {},
+        el('h2', { class: 'cgx-page-title' }, title),
+        el('section', { class: 'cgx-panel cgx-article' }, legacyEmbed(clone))
+      )
+    );
+  }
+
+  // smilies.php — the emoticon reference, as a grid of code + image chips.
+  // Clicking one copies the code, which is the only thing anyone comes here for.
+  function renderSmilies(doc) {
+    const smilies = parseSmilies(doc);
+    if (!smilies.length) return legacyPage(doc, 'Smilies');
+    const copy = (btn, code) => {
+      navigator.clipboard?.writeText(code).then(
+        () => {
+          btn.classList.add('copied');
+          setTimeout(() => btn.classList.remove('copied'), 900);
+        },
+        () => {}
+      );
+    };
+    renderShell(
+      doc,
+      el(
+        'div',
+        {},
+        el('h2', { class: 'cgx-page-title' }, `Smilies (${smilies.length})`),
+        el('p', { class: 'cgx-hint' }, 'Type the code into any post box — or click one here to copy it.'),
+        el(
+          'section',
+          { class: 'cgx-panel' },
+          el(
+            'div',
+            { class: 'cgx-smilie-grid' },
+            smilies.map((sm) => {
+              const btn = el(
+                'button',
+                { class: 'cgx-smilie-card', type: 'button', title: 'Copy ' + sm.code, onclick: () => copy(btn, sm.code) },
+                el('img', { src: sm.src, alt: sm.alt }),
+                el('code', {}, sm.code)
+              );
+              return btn;
+            })
+          )
+        )
+      )
+    );
+  }
+
   function renderTags(doc) {
     const tables = leafTables(doc).filter((t) => /Description:/i.test(txt(t)));
+    if (!tables.length) return legacyPage(doc, 'BB codes');
     const cards = tables.map((t) => {
       const get = (label) => {
         const r = [...t.rows].find((x) => x.cells[1] && new RegExp('^' + label, 'i').test(txt(x.cells[0])));
@@ -4285,6 +4648,7 @@
     const form = [...doc.forms].find((f) => (f.getAttribute('action') || '').includes('takemessage'));
     if (!form) throw new Error('no PM form');
     form.classList.add('cgx-repform', 'cgx-reply');
+    armFormEditors(form);
     const rid = form.elements.receiver?.value;
     const toA = rid
       ? [...doc.querySelectorAll('a[href*="userdetails"]')].find((a) => new RegExp(`id=${rid}$`).test(a.getAttribute('href') || ''))
@@ -4393,7 +4757,7 @@
           'div',
           { class: 'cgx-panel-head cgx-forums-top' },
           el('h2', { class: 'cgx-page-title' }, 'Forums'),
-          catchup ? el('a', { class: 'cgx-btn ghost', href: catchup.href, title: 'Mark everything read' }, '✓ Catch up') : null
+          catchup ? el('a', { class: 'cgx-btn ghost', href: catchup.href, title: txt(catchup) || null }, '✓ View unread') : null
         ),
         el(
           'section',
@@ -4593,7 +4957,7 @@
           'div',
           { class: 'cgx-panel-head cgx-forums-top' },
           el('h2', { class: 'cgx-page-title' }, el('a', { href: '/forums.php' }, 'Forums'), ' › Unread topics', el('span', { class: 'cgx-board-note' }, `${topics.length}${note && /more than/i.test(note) ? '+' : ''}`)),
-          catchup ? el('a', { class: 'cgx-btn ghost', href: catchup.href, title: 'Mark everything read' }, '✓ Catch up') : null
+          catchup ? el('a', { class: 'cgx-btn ghost', href: catchup.href, title: txt(catchup) || null }, '✓ View unread') : null
         ),
         el(
           'section',
@@ -4647,13 +5011,18 @@
     const headers = [...doc.querySelectorAll('table.bottom td.embedded')].filter((h) => h.querySelector('a[href*="userdetails"]'));
     return [...doc.querySelectorAll('td.comment')].map((body) => {
       const head = headers.filter((h) => h.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).pop();
-      const avatarCell = body.closest('table')?.querySelector('td.avatar');
+      const postTable = body.closest('table');
+      const avatarCell = postTable?.querySelector('td.avatar');
       const headText = txt(head);
       const headLinks = head ? [...head.querySelectorAll('a')] : [];
       return {
         num: (headText.match(/#(\d+)/) || [])[1] || '',
         permalink: headLinks.find((a) => /^#\d+$/.test(txt(a)))?.href,
-        userA: head?.querySelector('a[href*="userdetails"]'),
+        // Quote/edit pages render their post previews without the header strip,
+        // so fall back to the profile link inside the post's own table —
+        // without an author there is no user id, and hidden users would show
+        // up again on exactly the pages you went to in order to reply to them.
+        userA: head?.querySelector('a[href*="userdetails"]') || postTable?.querySelector('a[href*="userdetails"]'),
         klass: (headText.match(/\(([^)]+)\)\s+at/) || [])[1] || '',
         date: (headText.match(/at\s+([\d-]+\s[\d:]+)/) || [])[1] || '',
         ago: (headText.match(/\(([^)]*ago)\)/) || [])[1] || '',
@@ -4688,7 +5057,10 @@
   // Numeric user id for a post — from the profile link, or the legacy
   // `td.comment.userNNN` class the original hide-users script keyed on.
   function postUserId(p) {
-    const m = (p.userA?.href || '').match(/[?&]id=(\d+)/) || (p.body?.className || '').match(/\buser(\d+)\b/);
+    const m =
+      (p.userA?.href || '').match(/[?&]id=(\d+)/) ||
+      (p.body?.className || '').match(/\buser(\d+)\b/) ||
+      (p.body?.closest('table')?.className || '').match(/\buser(\d+)\b/);
     return m ? m[1] : null;
   }
 
@@ -4829,6 +5201,151 @@
     return card;
   }
 
+  /* ------------------------------ post editor kit ----------------------------- */
+  // Everything that turns a legacy <textarea> into an editor lives here, so
+  // every box you can type a post into — quick reply, compose, torrent
+  // comment, PM, upload description — gets the same kit from one call to
+  // armEditor().
+
+  // Same-origin page fetch, parsed. Used to read the site's own smilie and
+  // BBCode reference pages rather than hardcoding a list that would drift.
+  function fetchDoc(url, cb) {
+    fetch(url, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
+      .then((html) => cb(new DOMParser().parseFromString(html, 'text/html')))
+      .catch(() => cb(null));
+  }
+
+  // A day's cache in localStorage in front of fetchDoc-based parsers: the
+  // smilie set and the BBCode list change roughly never, and both are wanted
+  // the moment a toolbar dropdown is first opened.
+  const CACHE_TTL = 24 * 60 * 60 * 1000;
+  function cachedList(key, url, parse, cb) {
+    const hit = store.get('cache:' + key, null);
+    if (hit && Date.now() - hit.at < CACHE_TTL && hit.list?.length) return cb(hit.list);
+    fetchDoc(url, (doc) => {
+      const list = doc ? parse(doc) : [];
+      if (list.length) store.set('cache:' + key, { at: Date.now(), list });
+      cb(list.length ? list : hit?.list || []);
+    });
+  }
+
+  // A smilie code is short, unspaced, and always carries punctuation — ":)",
+  // ":cool:", ":-D". The punctuation test is what keeps a sidebar cell reading
+  // "Browse" beside an icon from being mistaken for one.
+  const smilieCode = (s) => {
+    const t = (s || '').trim();
+    return t && t.length <= 24 && !/\s/.test(t) && /[^\w]/.test(t) ? t : '';
+  };
+
+  // The reference pages aren't at a fixed path on every install, so whenever a
+  // page shows us a "smilies" or "tags" link, keep its href for later.
+  function rememberHelpLinks(doc) {
+    for (const a of doc.querySelectorAll('a[href]')) {
+      const label = txt(a).toLowerCase();
+      if (label === 'smilies' || label === 'tags') store.set('url:' + label, a.href);
+    }
+  }
+  const helpUrl = (name, fallback) => store.get('url:' + name, fallback);
+
+  // smilies.php lays out image + code pairs; which cell holds which varies
+  // (live it's code-then-image, so the previous cell comes first), so try the
+  // image's own cell, its neighbours, then its alt attribute.
+  function parseSmilies(doc) {
+    const out = [];
+    const seen = new Set();
+    for (const img of doc.querySelectorAll('img')) {
+      const src = img.getAttribute('src') || '';
+      if (!src || /logo|banner|bg\.png/i.test(src)) continue;
+      const cell = img.closest('td') || img.parentElement;
+      const code =
+        smilieCode(txt(cell)) ||
+        smilieCode(txt(cell?.previousElementSibling)) ||
+        smilieCode(txt(cell?.nextElementSibling)) ||
+        smilieCode(img.getAttribute('alt')) ||
+        smilieCode(img.getAttribute('title'));
+      if (!code || seen.has(code)) continue;
+      seen.add(code);
+      out.push({ code, src: img.src, alt: img.getAttribute('alt') || code });
+    }
+    return out;
+  }
+  const loadSmilies = (cb) => cachedList('smilies', helpUrl('smilies', '/smilies.php'), parseSmilies, cb);
+
+  // tags.php is CG's own BBCode reference — one 4-row table per tag
+  // (Description / Syntax / Example / Result). Reading the toolbar's
+  // site-specific codes out of it means the buttons are always exactly the
+  // codes this site supports: video embeds, mediainfo, user/torrent/thread/
+  // imdb/search links, whatever gets added later.
+  function parseBbTags(doc) {
+    const out = [];
+    const seen = new Set();
+    for (const t of doc.querySelectorAll('table')) {
+      if (t.querySelector('table') || !/description:/i.test(t.textContent || '')) continue;
+      const cellFor = (label) =>
+        [...t.rows].find((r) => r.cells[1] && new RegExp('^' + label, 'i').test(txt(r.cells[0])))?.cells[1];
+      const syntax = txt(cellFor('Syntax'));
+      const name = (syntax.match(/^\[(\w+)/) || [])[1];
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      out.push({ name, syntax, desc: txt(cellFor('Description')), example: txt(cellFor('Example')) });
+    }
+    return out;
+  }
+  const loadBbTags = (cb) => cachedList('bbtags', helpUrl('tags', '/tags.php'), parseBbTags, cb);
+
+  /* --- BBCode → HTML, for the preview panel --- */
+
+  const BB_SIZES = { 1: '0.7em', 2: '0.85em', 3: '1em', 4: '1.2em', 5: '1.5em', 6: '2em', 7: '2.5em' };
+  const escapeHtml = (s) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const safeUrl = (u) => (/^(https?:|\/|\.{0,2}\/)/i.test(u) ? u : '#');
+
+  // Applied repeatedly until the text stops changing, which is how nesting
+  // ([quote] inside [quote], [b] inside [url]) resolves — each pass eats the
+  // innermost pair.
+  const BB_RULES = [
+    [/\[b\]([\s\S]*?)\[\/b\]/gi, '<strong>$1</strong>'],
+    [/\[i\]([\s\S]*?)\[\/i\]/gi, '<em>$1</em>'],
+    [/\[u\]([\s\S]*?)\[\/u\]/gi, '<u>$1</u>'],
+    [/\[s\]([\s\S]*?)\[\/s\]/gi, '<s>$1</s>'],
+    [/\[center\]([\s\S]*?)\[\/center\]/gi, '<div style="text-align:center">$1</div>'],
+    [/\[pre\]([\s\S]*?)\[\/pre\]/gi, '<pre>$1</pre>'],
+    [/\[spoiler\]([\s\S]*?)\[\/spoiler\]/gi, '<span class="cgx-pv-spoiler">$1</span>'],
+    [/\[color=([#\w]+)\]([\s\S]*?)\[\/color\]/gi, '<span style="color:$1">$2</span>'],
+    [/\[size=([1-7])\]([\s\S]*?)\[\/size\]/gi, (m, n, body) => `<span style="font-size:${BB_SIZES[n]}">${body}</span>`],
+    // safeUrl: the text being previewed can be someone else's quoted post, so
+    // javascript:/data: URLs are dropped rather than rendered into an anchor.
+    [/\[url=([^\]\s]+)\]([\s\S]*?)\[\/url\]/gi, (m, u, body) => `<a href="${safeUrl(u)}">${body}</a>`],
+    [/\[url\]([^[\]\s]+)\[\/url\]/gi, (m, u) => `<a href="${safeUrl(u)}">${u}</a>`],
+    [/\[img\]([^[\]\s]+)\[\/img\]/gi, (m, u) => `<img src="${safeUrl(u)}">`],
+    [/\[thumb=(\d+)\]([^[\]\s]+)\[\/thumb\]/gi, (m, w, u) => `<img src="${safeUrl(u)}" style="max-width:${w}px">`],
+    [/\[quote=([^\]]+)\]([\s\S]*?)\[\/quote\]/gi, '<p class="sub">$1 wrote:</p><div class="quote">$2</div>'],
+    [/\[quote\]([\s\S]*?)\[\/quote\]/gi, '<div class="quote">$1</div>'],
+  ];
+
+  function bbToHtml(text, smilies) {
+    // Escape first: from here on nothing in the source can introduce markup,
+    // so the substitutions below only ever emit tags we wrote ourselves.
+    let s = escapeHtml(text);
+    for (let pass = 0; pass < 8; pass++) {
+      const before = s;
+      for (const [re, to] of BB_RULES) s = s.replace(re, to);
+      if (s === before) break;
+    }
+    // Runs of [*] lines become one list.
+    s = s.replace(/(?:^|\n)((?:\[\*\][^\n]*\n?)+)/g, (m, block) => {
+      const items = block.trim().split(/\n/).map((l) => `<li>${l.replace(/^\[\*\]\s?/, '')}</li>`);
+      return `<ul>${items.join('')}</ul>`;
+    });
+    // Longest code first, so ":cool:" isn't eaten by a ":c" style code.
+    for (const sm of [...(smilies || [])].sort((a, b) => b.code.length - a.code.length)) {
+      s = s.replace(new RegExp(escapeRe(escapeHtml(sm.code)), 'g'), `<img src="${sm.src}" alt="${escapeHtml(sm.alt)}">`);
+    }
+    return s.replace(/\n/g, '<br>');
+  }
+
   // BBCode toolbar for the compose textarea — the useful core of WhutBBCode
   // (greasyfork 1024) without its settings/emoticons/update machinery.
   // Wraps the selection and keeps it selected so formatting can be stacked.
@@ -4878,6 +5395,118 @@
   // Only shortcuts the browser actually delivers to the page — Cmd+Q/M/L
   // and friends are reserved by Chrome/macOS and never reach us.
 
+  // Drop text in at the caret without wrapping anything (smilies, whole tag
+  // skeletons) and leave the caret after it.
+  function bbInsert(ta, text) {
+    const s = ta.selectionStart ?? ta.value.length;
+    const e = ta.selectionEnd ?? s;
+    ta.value = ta.value.slice(0, s) + text + ta.value.slice(e);
+    const at = s + text.length;
+    ta.focus();
+    ta.setSelectionRange(at, at);
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // A toolbar dropdown whose contents are fetched the first time it's opened.
+  function lazyMenu(label, title, cls, load, build) {
+    let loaded = false;
+    const body = el('div', { class: 'cgx-bbmenu-list ' + cls });
+    const menu = el(
+      'details',
+      { class: 'cgx-bbmenu' },
+      el('summary', { class: 'cgx-btn ghost sm', title }, label),
+      body
+    );
+    menu.addEventListener('toggle', () => {
+      if (!menu.open || loaded) return;
+      loaded = true;
+      body.append(el('span', { class: 'cgx-bbmenu-note' }, 'Loading…'));
+      load((list) => {
+        body.textContent = '';
+        if (!list.length) body.append(el('span', { class: 'cgx-bbmenu-note' }, 'Nothing to show — the source page could not be read.'));
+        else body.append(...build(list, () => (menu.open = false)));
+      });
+    });
+    document.addEventListener('click', (e) => {
+      if (menu.open && !menu.contains(e.target)) menu.open = false;
+    });
+    return menu;
+  }
+
+  const smilieMenu = (ta) =>
+    lazyMenu('☺', 'Smilies', 'smilies', loadSmilies, (list, close) =>
+      list.map((sm) =>
+        el(
+          'button',
+          {
+            class: 'cgx-smilie',
+            type: 'button',
+            title: sm.code,
+            onclick: () => {
+              bbInsert(ta, (/\s$/.test(ta.value.slice(0, ta.selectionStart ?? 0)) ? '' : ' ') + sm.code + ' ');
+              close();
+            },
+          },
+          el('img', { src: sm.src, alt: sm.alt })
+        )
+      )
+    );
+
+  // Site-specific codes, straight from tags.php. A tag written as
+  // "[x=VALUE]TEXT[/x]" wraps the selection; anything else is inserted whole
+  // so the placeholders are there to type over.
+  const siteCodeMenu = (ta) =>
+    lazyMenu('Site codes ▾', "This site's own BBCodes, read from tags.php", 'codes', loadBbTags, (list, close) =>
+      list.map((t) => {
+        const pair = t.syntax.match(/^(\[[^\]]+\])([\s\S]*)(\[\/\w+\])$/);
+        return el(
+          'button',
+          {
+            class: 'cgx-bbmenu-row',
+            type: 'button',
+            onclick: () => {
+              if (pair && (ta.selectionEnd ?? 0) > (ta.selectionStart ?? 0)) bbWrap(ta, pair[1], pair[3]);
+              else bbInsert(ta, t.syntax);
+              close();
+            },
+          },
+          el('code', {}, t.syntax || '[' + t.name + ']'),
+          t.desc ? el('span', { class: 'desc' }, t.desc) : null
+        );
+      })
+    );
+
+  // Expandable render-as-it-will-look panel under the box. Re-rendered on
+  // input while open only — closed, it costs nothing.
+  function previewPanel(ta) {
+    const body = el('div', { class: 'cgx-embed cgx-preview-body' });
+    const panel = el('details', { class: 'cgx-preview' }, el('summary', {}, 'Preview'), body);
+    let smilies = [];
+    let timer = null;
+    const draw = () => {
+      body.innerHTML = ta.value.trim() ? bbToHtml(ta.value, smilies) : '';
+      if (!ta.value.trim()) body.append(el('span', { class: 'cgx-hint' }, 'Nothing to preview yet.'));
+    };
+    panel.addEventListener('toggle', () => {
+      if (!panel.open) return;
+      draw();
+      if (!smilies.length) {
+        loadSmilies((list) => {
+          smilies = list;
+          if (panel.open) draw();
+        });
+      }
+    });
+    ta.addEventListener('input', () => {
+      if (!panel.open) return;
+      clearTimeout(timer);
+      timer = setTimeout(draw, 200);
+    });
+    // Keyed on the field name: the profile page has two of these (info and
+    // signature) and they should remember their own states, not share one.
+    return rememberOpen(panel, 'post-preview-' + (ta.name || ta.id || ''));
+  }
+
   function bbToolbar(ta) {
     const mod = /mac/i.test(navigator.platform) ? '⌘' : 'Ctrl+';
     const apply = (b) => (b.list ? bbList(ta) : bbWrap(ta, b.pre, b.post));
@@ -4908,9 +5537,25 @@
               b.label
             )
           : el('span', { class: 'cgx-bbbar-div' })
-      )
+      ),
+      el('span', { class: 'cgx-bbbar-div' }),
+      smilieMenu(ta),
+      siteCodeMenu(ta)
     );
   }
+
+  // The one call every post box makes: toolbar above, preview below. Idempotent,
+  // so renderers that already reparented a legacy form can call it freely.
+  function armEditor(ta) {
+    if (!ta || ta.dataset.cgxArmed) return;
+    ta.dataset.cgxArmed = '1';
+    ta.parentNode.insertBefore(bbToolbar(ta), ta);
+    ta.parentNode.insertBefore(previewPanel(ta), ta.nextSibling);
+  }
+
+  // Arm every textarea in a form — legacy compose pages have exactly one, but
+  // this keeps callers from having to find it.
+  const armFormEditors = (form) => form && form.querySelectorAll('textarea').forEach(armEditor);
 
   // ?action=reply / newtopic / edit — the compose page: reparented form +
   // the "10 last posts, in reverse order" preview.
@@ -4918,8 +5563,7 @@
     const form = [...doc.forms].find((f) => f.querySelector('textarea'));
     if (!form) throw new Error('no compose form');
     form.classList.add('cgx-repform', 'cgx-reply');
-    const ta = form.querySelector('textarea');
-    ta.parentNode.insertBefore(bbToolbar(ta), ta);
+    armFormEditors(form);
     const topicid = form.elements.topicid?.value;
     const helpLinks = [...doc.querySelectorAll('a')].filter((a) => /^(tags|smilies)$/i.test(txt(a).trim()));
     const lastHead = [...doc.querySelectorAll('h1, td.colhead')].find((h) => /last posts/i.test(txt(h)));
@@ -4939,9 +5583,16 @@
             el('a', { href: '/forums.php' }, 'Forums'),
             /edit/i.test(new URLSearchParams(location.search).get('action') || '') ? ' › Edit post' : ' › Compose'
           ),
-          topicid
-            ? el('a', { class: 'cgx-btn ghost', href: `/forums.php?action=viewtopic&topicid=${topicid}` }, '‹ Back to topic')
-            : null
+          el(
+            'div',
+            { class: 'cgx-forums-actions' },
+            // Same menu as the topic view — the quote page hides the same
+            // users, so it needs the same way back out.
+            hiddenUsersMenu(),
+            topicid
+              ? el('a', { class: 'cgx-btn ghost', href: `/forums.php?action=viewtopic&topicid=${topicid}` }, '‹ Back to topic')
+              : null
+          )
         ),
         el(
           'section',
@@ -4957,9 +5608,55 @@
           form
         ),
         posts.length ? el('h3', { class: 'cgx-page-title cgx-lastposts' }, txt(lastHead) || 'Last posts') : null,
-        posts.map(forumPostCard)
+        posts.map(forumPostCard),
+        threadJump()
       )
     );
+  }
+
+  // Floating top/bottom jumps for long threads. Fixed to the viewport rather
+  // than tied to the post list, so it stays put while the thread scrolls, and
+  // it only appears once there is actually somewhere to jump to.
+  function threadJump() {
+    const jump = (y) => scrollTo({ top: y, behavior: 'smooth' });
+    const nav = el(
+      'div',
+      { class: 'cgx-jump' },
+      el('button', { class: 'cgx-btn icon', type: 'button', title: 'Jump to top', onclick: () => jump(0) }, '▲'),
+      el(
+        'button',
+        { class: 'cgx-btn icon', type: 'button', title: 'Jump to bottom', onclick: () => jump(document.documentElement.scrollHeight) },
+        '▼'
+      )
+    );
+    const sync = () => nav.classList.toggle('on', document.documentElement.scrollHeight - innerHeight > 400);
+    addEventListener('scroll', sync, { passive: true });
+    addEventListener('resize', sync);
+    requestAnimationFrame(sync);
+    return nav;
+  }
+
+  // Replying redirects to "…&page=last#<postid>", but the browser can answer
+  // that from its cache with the copy it already had — the thread comes back
+  // without the post that was just made, and only a manual reload fixes it.
+  // If the anchor we were sent to isn't on the page, fetch it again (once per
+  // post id, so a genuinely missing/deleted post can't loop).
+  function refetchIfPostMissing(posts) {
+    // Scoped to the "page=last" shape the post-reply redirect uses — a plain
+    // permalink into a thread can legitimately land on a page that doesn't
+    // hold that post, and reloading there would achieve nothing.
+    if (!/[?&]page=last\b/.test(location.search)) return false;
+    const wanted = (location.hash.match(/^#(\d+)$/) || [])[1];
+    if (!wanted || posts.some((p) => p.num === wanted)) return false;
+    const flag = 'cgx:refetched:' + wanted;
+    try {
+      if (sessionStorage.getItem(flag)) return false;
+      sessionStorage.setItem(flag, '1');
+    } catch {
+      return false;
+    }
+    location.reload();
+    return true;
   }
 
   function forumsTopic(doc) {
@@ -4970,6 +5667,7 @@
     else crumb.textContent = 'Topic';
 
     const posts = parseForumPosts(doc);
+    if (refetchIfPostMissing(posts)) return;
 
     // Tiny hidden+submit forms ("View Unread", "Full Reply") become buttons;
     // the quick-reply form (textarea) is reparented whole.
@@ -4985,7 +5683,10 @@
         );
       });
     const replyForm = [...doc.forms].find((f) => f.querySelector('textarea'));
-    if (replyForm) replyForm.classList.add('cgx-repform');
+    if (replyForm) {
+      replyForm.classList.add('cgx-repform');
+      armFormEditors(replyForm);
+    }
 
     renderShell(
       doc,
@@ -4997,7 +5698,8 @@
         pagerNav(doc),
         replyForm
           ? el('section', { class: 'cgx-panel cgx-reply' }, el('h3', {}, 'Quick reply'), replyForm)
-          : null
+          : null,
+        threadJump()
       )
     );
   }
@@ -5032,6 +5734,32 @@
       })
     );
   }
+
+  // Page listings (notawiki.php, endoscope results) as rows rather than cards:
+  // these are long, mostly-uniform inventories where you scan down one column
+  // looking for a title, and the card grid made that harder than the plain
+  // table it replaced. The COCKS home page keeps its cards — a handful of
+  // categories is exactly what a grid is good at.
+  const cocksPageList = (pages) =>
+    el(
+      'div',
+      { class: 'cgx-page-list' },
+      pages.map((p) =>
+        el(
+          'a',
+          { class: 'cgx-page-row', href: p.href },
+          el(
+            'span',
+            { class: 'main' },
+            el('span', { class: 'name' }, p.title),
+            p.desc ? el('span', { class: 'desc' }, p.desc) : null
+          ),
+          p.type ? el('span', { class: 'type' }, p.type) : null,
+          p.curator ? el('span', { class: 'curator' }, p.curator) : null,
+          p.edited ? el('span', { class: 'edited' }, p.edited) : null
+        )
+      )
+    );
 
   // The endoscope.php search form rebuilt with proxies (shared by index + listings).
   function buildCocksSearch(doc) {
@@ -5205,21 +5933,7 @@
         ),
         buildCocksSearch(doc),
         pages.length
-          ? el(
-              'div',
-              { class: 'cgx-cat-grid' },
-              pages.map((p) =>
-                el(
-                  'a',
-                  { class: 'cgx-cat-card', href: p.href },
-                  el('div', { class: 'name' }, p.title),
-                  p.desc ? el('div', { class: 'desc' }, p.desc) : null,
-                  p.type || p.curator || p.edited
-                    ? el('div', { class: 'meta' }, [p.type, p.curator ? `by ${p.curator}` : '', p.edited].filter(Boolean).join(' · '))
-                    : null
-                )
-              )
-            )
+          ? el('section', { class: 'cgx-panel' }, cocksPageList(pages))
           : el('section', { class: 'cgx-panel' }, el('p', { class: 'cgx-hint' }, 'Nothing found — the endoscope came back clean.'))
       )
     );
@@ -5278,21 +5992,7 @@
       'All pages';
     const pseudoA = [...outer.querySelectorAll('a')].find((a) => /pseudorandom/i.test(txt(a)));
 
-    const grid = el(
-      'div',
-      { class: 'cgx-cat-grid' },
-      pages.map((p) =>
-        el(
-          'a',
-          { class: 'cgx-cat-card', href: p.href },
-          el('div', { class: 'name' }, p.title),
-          p.desc ? el('div', { class: 'desc' }, p.desc) : null,
-          p.type || p.curator || p.edited
-            ? el('div', { class: 'meta' }, [p.type, p.curator ? `by ${p.curator}` : '', p.edited].filter(Boolean).join(' · '))
-            : null
-        )
-      )
-    );
+    const grid = cocksPageList(pages);
 
     const filter = el('input', {
       class: 'cgx-search cgx-list-filter',
@@ -5651,28 +6351,45 @@
     const style = document.createElement('style');
     style.id = 'cg-redux-style';
     style.textContent = `
-      /* Dark native widgets + themed main scrollbar (only injected on redux pages) */
-      html { color-scheme: dark; scrollbar-color: #4a443a #24221e; }
+      /* Native widgets + main scrollbar follow the scheme (only injected on redux pages) */
+      html { color-scheme: ${theme.scheme}; scrollbar-color: ${theme.sbThumb} ${theme.sbTrack}; }
       body > :not(#cg-redux-root) { display: none !important; }
       #cg-redux-root {
-        --bg: #1e1c19; --panel: #282521; --panel-2: #302d28;
-        --text: #e8e6e1; --muted: #9a9890; --accent: #f0a028; --accent-2: #ffbe55;
-        --green: #7dc46a; --red: #e06c5a; --radius: 10px;
+        --bg: ${theme.bg}; --panel: ${theme.panel}; --panel-2: ${theme.panel2};
+        --text: ${theme.text}; --muted: ${theme.muted}; --faint: ${theme.faint};
+        --accent: ${theme.accent}; --accent-rgb: ${theme.accentRgb}; --accent-2: ${theme.accent2};
+        --on-accent: ${theme.onAccent};
+        --green: ${theme.green}; --green-rgb: ${theme.greenRgb};
+        --red: ${theme.red}; --red-rgb: ${theme.redRgb};
+        --line-soft: ${theme.lineSoft}; --line: ${theme.line};
+        --line-strong: ${theme.lineStrong}; --line-hard: ${theme.lineHard};
+        --hover: ${theme.hover};
+        --hair: ${theme.hair}; --hair-strong: ${theme.hairStrong}; --wash: ${theme.wash};
+        --sink: ${theme.sink}; --backdrop: ${theme.backdrop};
+        --shadow: ${theme.shadow}; --shadow-lg: ${theme.shadowLg};
+        --radius: 10px;
+        /* Measured from the live topbar (armTopbarHeight) — it grows a row when
+           the window is narrow, and the sidebar's sticky offset must follow. */
+        --topbar-h: 63px;
+        /* The same mark again, pre-tinted and spinning under its own SMIL
+           clock — background images can't be animated from CSS, so the
+           rotation has to live inside the SVG. Used as the placeholder behind
+           every still-loading image. */
+        --spinner: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='${theme.accent.replace('#', '%23')}'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 50 50' to='360 50 50' dur='1.6s' repeatCount='indefinite'/%3E%3Ccircle cx='50' cy='50' r='11'/%3E%3Cpath d='M41 34.4 L27 10.2 A46 46 0 0 1 73 10.2 L59 34.4 A18 18 0 0 0 41 34.4 Z'/%3E%3Cpath d='M41 34.4 L27 10.2 A46 46 0 0 1 73 10.2 L59 34.4 A18 18 0 0 0 41 34.4 Z' transform='rotate(120 50 50)'/%3E%3Cpath d='M41 34.4 L27 10.2 A46 46 0 0 1 73 10.2 L59 34.4 A18 18 0 0 0 41 34.4 Z' transform='rotate(240 50 50)'/%3E%3C/g%3E%3C/svg%3E");
         /* Same trefoil as radMark(), as a mask so plain CSS can stamp it anywhere */
         --trefoil: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='black'%3E%3Ccircle cx='50' cy='50' r='11'/%3E%3Cpath d='M41 34.4 L27 10.2 A46 46 0 0 1 73 10.2 L59 34.4 A18 18 0 0 0 41 34.4 Z'/%3E%3Cpath d='M41 34.4 L27 10.2 A46 46 0 0 1 73 10.2 L59 34.4 A18 18 0 0 0 41 34.4 Z' transform='rotate(120 50 50)'/%3E%3Cpath d='M41 34.4 L27 10.2 A46 46 0 0 1 73 10.2 L59 34.4 A18 18 0 0 0 41 34.4 Z' transform='rotate(240 50 50)'/%3E%3C/g%3E%3C/svg%3E");
         position: relative; isolation: isolate; min-height: 100vh; background: var(--bg); color: var(--text);
         font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         zoom: 1.1; /* Max prefers the 110%-browser-zoom sizing */
       }
-      /* CG's original 6x6 diagonal-stripe tile (/pic/bg.png), dimmed to sit under the dark theme */
+      /* CG's original 6x6 diagonal-stripe tile (/pic/bg.png), re-tinted per scheme */
       #cg-redux-root::before {
         content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
-        /* sepia+saturate warm the neutral-grey tile to match the brown theme */
-        background: url('/pic/bg.png'); filter: brightness(0.55) sepia(0.6) saturate(1.15);
+        background: url('/pic/bg.png'); filter: ${theme.tile};
       }
       #cg-redux-root a { color: var(--accent-2); text-decoration: none; }
       #cg-redux-root a:hover { color: var(--accent); }
-      #cg-redux-root ::selection { background: var(--accent); color: #1e1c19; }
+      #cg-redux-root ::selection { background: var(--accent); color: var(--on-accent); }
       /* Accent trefoil bullet on panel + sidebar headings (collapsible summaries
          keep their ▸/▾ caret instead — it signals open/closed state) */
       .cgx-panel > h3::before, .cgx-panel-head > h3::before, .cgx-side-section h3::before {
@@ -5684,7 +6401,7 @@
 
       .cgx-topbar {
         display: flex; align-items: center; gap: 28px; padding: 14px 28px;
-        background: var(--panel); border-bottom: 1px solid #000; position: sticky; top: 0; z-index: 10;
+        background: var(--panel); border-bottom: 1px solid var(--line-hard); position: sticky; top: 0; z-index: 10;
       }
       .cgx-brand { display: flex; align-items: center; font-weight: 800; letter-spacing: 1px; font-size: 18px; color: var(--text) !important; }
       .cgx-brand span { color: var(--accent); }
@@ -5700,11 +6417,15 @@
         width: 232px; flex: none; box-sizing: border-box;
         /* 100vh is inflated by the root's zoom: 1.1, so divide it back out —
            otherwise the sidebar's bottom (and its scrollbar end) sits below the
-           viewport and the page has to be scrolled to reach it */
-        position: sticky; top: 63px; max-height: calc(100vh / 1.1 - 63px); overflow-y: auto;
-        padding: 20px 16px 30px; border-right: 1px solid #2e2b25;
+           viewport and the page has to be scrolled to reach it.
+           --topbar-h is measured live: a hardcoded 63px overshoots whenever the
+           topbar wraps to two rows (narrow window, long username, big stats),
+           which pushed the sidebar's last section — Search — off screen with no
+           way to scroll to it. */
+        position: sticky; top: var(--topbar-h); max-height: calc(100vh / 1.1 - var(--topbar-h)); overflow-y: auto;
+        padding: 20px 16px 30px; border-right: 1px solid var(--line-soft);
         transition: margin-left 0.22s ease, opacity 0.22s ease;
-        scrollbar-width: thin; scrollbar-color: #3e3931 transparent;
+        scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
       }
       #cg-redux-root.nav-closed .cgx-sidebar { margin-left: -232px; opacity: 0; pointer-events: none; }
       .cgx-side-section { display: flex; flex-direction: column; gap: 1px; }
@@ -5717,14 +6438,14 @@
       .cgx-side-link:hover { color: var(--text) !important; background: var(--panel); }
       .cgx-side-link.active { color: var(--accent) !important; background: var(--panel); font-weight: 600; }
       .cgx-side-search, .cgx-side-select {
-        background: var(--panel); border: 1px solid #3e3931; border-radius: 8px;
+        background: var(--panel); border: 1px solid var(--line-strong); border-radius: 8px;
         color: var(--text); padding: 7px 10px; font-size: 13px; margin-bottom: 6px; outline: none;
       }
       .cgx-side-search:focus { border-color: var(--accent); }
       .cgx-user { margin-left: auto; display: flex; align-items: center; gap: 7px; min-width: 0; }
       .cgx-stat {
         display: inline-flex; align-items: center; gap: 5px;
-        background: var(--panel-2); border: 1px solid #37332b; border-radius: 999px;
+        background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
         padding: 3px 10px; font-size: 12px; color: var(--muted) !important; white-space: nowrap;
       }
       a.cgx-stat:hover { border-color: var(--accent); }
@@ -5736,8 +6457,34 @@
       .cgx-stat .down { color: var(--red); font-size: 11px; }
       .cgx-user-name { color: var(--text); font-weight: 700; }
       .cgx-user-class { color: var(--muted); font-size: 11px; }
-      .cgx-pm-badge { background: var(--accent); color: #1e1c19; border-radius: 999px; padding: 0 7px; font-size: 10.5px; font-weight: 700; }
+      .cgx-pm-badge { background: var(--accent); color: var(--on-accent); border-radius: 999px; padding: 0 7px; font-size: 10.5px; font-weight: 700; }
       .cgx-logout { font-size: 12.5px; }
+      .cgx-mail { display: inline-flex; color: var(--muted); }
+      .cgx-mail svg { width: 15px; height: 15px; display: block; }
+      .cgx-mail.unread { color: var(--accent); }
+      a.cgx-pm:hover .cgx-mail { color: var(--accent); }
+
+      .cgx-theme-menu { position: relative; flex: none; }
+      .cgx-theme-menu summary { list-style: none; cursor: pointer; }
+      .cgx-theme-menu summary::-webkit-details-marker { display: none; }
+      /* .cgx-stat pill dimensions; the glyph's line box is pinned to the
+         pills' 12px-text line height (18px) so the row stays uniform */
+      .cgx-theme-menu summary { font-size: 14px; line-height: 18px; }
+      .cgx-theme-menu[open] summary, .cgx-theme-menu summary:hover { color: var(--text) !important; border-color: var(--accent); }
+      .cgx-theme-list {
+        position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 172px;
+        display: flex; flex-direction: column; gap: 2px;
+        background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px;
+        padding: 6px; box-shadow: var(--shadow-lg);
+      }
+      .cgx-theme-opt {
+        display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+        background: none; border: 0; border-radius: 7px; color: var(--text);
+        padding: 6px 9px; font: inherit; font-size: 13px; cursor: pointer;
+      }
+      .cgx-theme-opt:hover { background: var(--hover); }
+      .cgx-theme-opt.on { color: var(--accent); font-weight: 600; }
+      .cgx-theme-opt .sw { width: 14px; height: 14px; border-radius: 50%; border: 2px solid; flex: none; }
 
       /* flex:1 + min-width:0 keeps the column at full available width regardless
          of content, so opening/closing wide sections can't reflow the layout;
@@ -5746,18 +6493,18 @@
 
       .cgx-toolbar { display: flex; gap: 10px; margin-bottom: 14px; }
       .cgx-search {
-        flex: 1; background: var(--panel); border: 1px solid #3e3931; border-radius: var(--radius);
+        flex: 1; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius);
         color: var(--text); padding: 10px 14px; font-size: 15px; outline: none;
       }
       .cgx-search:focus { border-color: var(--accent); }
 
       .cgx-btn {
         display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-        background: var(--panel-2); border: 1px solid #3e3931; border-radius: 8px;
+        background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 8px;
         color: var(--text) !important; padding: 8px 14px; font-size: 14px; cursor: pointer;
       }
       .cgx-btn:hover { border-color: var(--accent); }
-      .cgx-btn.primary { background: var(--accent); border-color: var(--accent); color: #1e1c19 !important; font-weight: 600; }
+      .cgx-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent) !important; font-weight: 600; }
       .cgx-btn.primary:hover { background: var(--accent-2); }
       .cgx-btn.ghost { background: transparent; }
 
@@ -5766,18 +6513,18 @@
       .cgx-searchwrap .cgx-search.has-count { padding-right: 92px; }
       .cgx-filter-count {
         position: absolute; right: 10px; top: 50%; transform: translateY(-50%); z-index: 2;
-        background: var(--accent); border: 0; border-radius: 999px; color: #1e1c19;
+        background: var(--accent); border: 0; border-radius: 999px; color: var(--on-accent);
         font-size: 11px; font-weight: 600; padding: 3px 10px; cursor: pointer; white-space: nowrap;
       }
       .cgx-search-panel {
         display: none; position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 40;
-        background: var(--panel); border: 1px solid #3e3931; border-radius: 12px;
-        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+        background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px;
+        box-shadow: var(--shadow-lg);
         padding: 6px 16px 12px; max-height: 65vh; overflow-y: auto;
       }
       .cgx-searchwrap.open .cgx-search-panel { display: block; }
       .cgx-searchwrap.open .cgx-search { border-color: var(--accent); }
-      .cgx-search-panel .cgx-chip-row { padding: 12px 0; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+      .cgx-search-panel .cgx-chip-row { padding: 12px 0; border-top: 1px solid var(--hair); }
       .cgx-search-panel .cgx-chip-row:first-child { border-top: 0; }
       .cgx-sp-title { display: flex; justify-content: space-between; align-items: center; }
       .cgx-sp-clear { background: none; border: 0; color: var(--muted); font-size: 11px; cursor: pointer; padding: 0; }
@@ -5790,11 +6537,11 @@
       .cgx-sp-recent:hover { background: var(--panel-2); }
       .cgx-sp-recent .ic { color: var(--muted); }
       .cgx-sp-foot {
-        display: flex; gap: 16px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.06);
+        display: flex; gap: 16px; padding-top: 10px; border-top: 1px solid var(--hair);
         color: var(--muted); font-size: 11.5px;
       }
       .cgx-kbd {
-        background: var(--panel-2); border: 1px solid #3e3931; border-radius: 4px;
+        background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 4px;
         padding: 0 5px; font-size: 10.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       }
 
@@ -5814,18 +6561,18 @@
       #cg-redux-root a.cgx-chip { color: var(--muted); }
       #cg-redux-root a.cgx-chip:hover { color: var(--text); border-color: var(--muted); }
       #cg-redux-root a.cgx-chip.on,
-      #cg-redux-root a.cgx-chip.on:hover { color: #1e1c19; border-color: var(--accent); }
+      #cg-redux-root a.cgx-chip.on:hover { color: var(--on-accent); border-color: var(--accent); }
       .cgx-cat-link { display: block; border-radius: 6px; }
       .cgx-cat-link:hover .cgx-cat { filter: brightness(1.25); }
       .cgx-chip {
-        background: var(--panel); border: 1px solid #3e3931; color: var(--muted);
+        background: var(--panel); border: 1px solid var(--line-strong); color: var(--muted);
         border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer;
       }
       .cgx-chip:hover { color: var(--text); border-color: var(--muted); }
-      .cgx-chip.on { background: var(--accent); border-color: var(--accent); color: #1e1c19; font-weight: 600; }
+      .cgx-chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 
-      .cgx-hero { background: var(--panel); border: 1px solid #2e2b25; border-radius: 12px; padding: 18px; margin-bottom: 22px; }
-      .cgx-hero.has-backdrop { background-size: cover; background-position: center 25%; border-color: #3a362e; }
+      .cgx-hero { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 12px; padding: 18px; margin-bottom: 22px; box-shadow: var(--shadow); }
+      .cgx-hero.has-backdrop { background-size: cover; background-position: center 25%; border-color: var(--line); }
       .cgx-hero.has-backdrop .cgx-hero-synopsis { opacity: 1; }
       .cgx-hero-inner { display: flex; gap: 20px; }
       .cgx-hero-poster { width: 150px; border-radius: 8px; flex: none; align-self: flex-start; cursor: zoom-in; }
@@ -5840,11 +6587,11 @@
       .cgx-posterbox.loaded .cgx-hero-poster { opacity: 1; }
       .cgx-posterbox.loaded > .cgx-rad { display: none; }
       .cgx-modal {
-        position: fixed; inset: 0; z-index: 100; background: rgba(13, 12, 10, 0.85);
+        position: fixed; inset: 0; z-index: 100; background: var(--backdrop);
         display: flex; align-items: center; justify-content: center; cursor: zoom-out;
         backdrop-filter: blur(2px);
       }
-      .cgx-modal-img { max-height: 84vh; max-width: 88vw; border-radius: 10px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); }
+      .cgx-modal-img { max-height: 84vh; max-width: 88vw; border-radius: 10px; box-shadow: var(--shadow-lg); }
       .cgx-modal .cgx-modal-img { opacity: 0; transition: opacity 0.18s ease; }
       .cgx-modal.loaded .cgx-modal-img { opacity: 1; }
       .cgx-modal > .cgx-rad { position: absolute; color: var(--accent); }
@@ -5867,17 +6614,25 @@
       .cgx-hero-loading { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
       .cgx-rad.spin svg { width: 16px; height: 16px; animation: cgx-spin 1.6s linear infinite; }
       @keyframes cgx-spin { to { transform: rotate(360deg); } }
+      /* In-flight images (armImageSpinners). min-height gives the mark somewhere
+         to sit before the image reports its own dimensions; both are dropped the
+         moment the class comes off, so nothing is left reserving space. */
+      img.cgx-imgloading {
+        min-width: 32px; min-height: 32px;
+        background: var(--panel-2) var(--spinner) center / 26px no-repeat;
+        border-radius: 6px;
+      }
 
       .cgx-profile-grid { display: grid; grid-template-columns: max-content 1fr; gap: 4px 18px; margin: 12px 0 0; font-size: 13.5px; }
       .cgx-profile-grid dt { color: var(--muted); }
       .cgx-profile-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
       .cgx-inline-img { max-height: 16px; vertical-align: middle; }
 
-      .cgx-panel { background: var(--panel); border: 1px solid #2e2b25; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+      .cgx-panel { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; box-shadow: var(--shadow); }
       .cgx-panel h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); }
       .cgx-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
       .cgx-hero .cgx-detail-title-wrap {
-        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        border-bottom: 1px solid var(--hair);
         padding-bottom: 12px; margin-bottom: 12px;
       }
       .cgx-detail-title-wrap { min-width: 0; }
@@ -5888,7 +6643,7 @@
       .cgx-ihave-note { color: var(--muted); font-size: 12px; }
       .cgx-ihave input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
       .cgx-ihave .cgx-btn { padding: 2px 12px; font-size: 12px; }
-      .cgx-name-link { color: var(--text) !important; border-bottom: 1px dotted rgba(232, 230, 225, 0.35); }
+      .cgx-name-link { color: var(--text) !important; border-bottom: 1px dotted var(--line-strong); }
       .cgx-name-link:hover { color: var(--accent) !important; border-bottom-color: var(--accent); }
       .cgx-badge.dupes { cursor: pointer; }
       .cgx-dupes-panel h3 { margin-top: 0; }
@@ -5900,7 +6655,7 @@
       .cgx-index-side { display: flex; flex-direction: column; gap: 14px; }
       .cgx-index-side .cgx-panel { margin-bottom: 0; }
       .cgx-news { position: relative; padding-left: 30px; }
-      .cgx-news::before { content: ''; position: absolute; left: 9px; top: 8px; bottom: 8px; width: 2px; background: #37332b; }
+      .cgx-news::before { content: ''; position: absolute; left: 9px; top: 8px; bottom: 8px; width: 2px; background: var(--line); }
       .cgx-news-item { position: relative; margin-bottom: 26px; }
       .cgx-news-item:last-child { margin-bottom: 4px; }
       .cgx-news-marker { position: absolute; left: -30px; top: 1px; background: var(--panel); padding: 3px 0; }
@@ -5912,7 +6667,7 @@
       .cgx-poll-opt { margin-bottom: 10px; }
       .cgx-poll-labels { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; margin-bottom: 3px; }
       .cgx-poll-labels .pct { color: var(--muted); flex: none; }
-      .cgx-poll-track { height: 8px; background: #322e28; border-radius: 999px; overflow: hidden; }
+      .cgx-poll-track { height: 8px; background: var(--hover); border-radius: 999px; overflow: hidden; }
       .cgx-poll-bar { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(to right, var(--accent), var(--accent-2)); transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1); }
       .cgx-poll-foot { display: flex; justify-content: space-between; align-items: baseline; color: var(--muted); font-size: 12px; margin-top: 12px; }
       .cgx-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -5926,7 +6681,7 @@
       .cgx-stat-tile .num.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; font-weight: 500; word-break: break-all; }
       .cgx-stat-tile .cgx-ihave { margin-bottom: 4px; }
       .cgx-tile-toggle { cursor: pointer; }
-      .cgx-tile-toggle:hover { background: #322e28; }
+      .cgx-tile-toggle:hover { background: var(--hover); }
       .cgx-tile-caret { color: var(--accent); }
       .cgx-tile-toggle.open .cgx-tile-caret { display: inline-block; transform: rotate(90deg); }
       .cgx-tile-expand { margin-top: 10px; cursor: auto; }
@@ -5952,37 +6707,37 @@
       .cgx-embed img { max-width: 100%; height: auto; border-radius: 8px; }
       .cgx-embed img.cgx-zoomable { cursor: zoom-in; }
       .cgx-embed a { color: var(--accent-2); }
-      .cgx-embed table, .cgx-embed td, .cgx-embed th { background: transparent !important; border-color: #37332b !important; color: var(--text); }
+      .cgx-embed table, .cgx-embed td, .cgx-embed th { background: transparent !important; border-color: var(--line) !important; color: var(--text); }
       .cgx-embed td { padding: 3px 8px; }
 
-      .cgx-comment { background: var(--panel-2); border: 1px solid #37332b; border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+      .cgx-comment { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 12px; overflow: hidden; box-shadow: var(--shadow); }
       .cgx-comment-head {
         display: flex; align-items: center; gap: 10px; padding: 9px 14px;
-        background: rgba(0, 0, 0, 0.18); border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        background: var(--sink); border-bottom: 1px solid var(--hair);
       }
       .cgx-comment-avatar {
         width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none;
-        box-shadow: 0 0 0 2px rgba(240, 160, 40, 0.35);
+        box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.35);
       }
       .cgx-comment-avatar.fallback { background: var(--panel); color: var(--accent); display: flex; align-items: center; justify-content: center; font-weight: 700; }
       .cgx-comment-user { font-weight: 700; color: var(--text) !important; }
       .cgx-comment-user:hover { color: var(--accent-2) !important; }
       .cgx-comment-class {
-        display: inline-block; background: rgba(240, 160, 40, 0.12); color: var(--accent-2);
+        display: inline-block; background: rgba(var(--accent-rgb), 0.12); color: var(--accent-2);
         border-radius: 999px; padding: 1px 8px; font-size: 11px; margin-left: 8px;
       }
       .cgx-comment-date { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
       .cgx-comment-body { padding: 12px 14px 13px; font-size: 13.5px; }
 
-      .cgx-user-section { margin-bottom: 14px; background: var(--panel); border: 1px solid #2e2b25; border-radius: 10px; }
-      .cgx-user-section summary { cursor: pointer; padding: 12px 16px; font-weight: 600; list-style: none; }
-      .cgx-user-section summary::-webkit-details-marker { display: none; }
-      .cgx-user-section summary::before { content: '▸ '; color: var(--accent); }
-      .cgx-user-section[open] summary::before { content: '▾ '; }
+      .cgx-user-section { margin-bottom: 14px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 10px; }
+      .cgx-user-section > summary { cursor: pointer; padding: 12px 16px; font-weight: 600; list-style: none; }
+      .cgx-user-section > summary::-webkit-details-marker { display: none; }
+      .cgx-user-section > summary::before { content: '▸ '; color: var(--accent); }
+      .cgx-user-section[open] > summary::before { content: '▾ '; }
       .cgx-tbl-wrap { overflow-x: auto; padding: 0 12px 12px; }
       .cgx-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-      .cgx-tbl th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 6px 10px; border-bottom: 1px solid rgba(240, 160, 40, 0.3); }
-      .cgx-tbl td { padding: 7px 10px; border-bottom: 1px solid #2c2a25; vertical-align: top; }
+      .cgx-tbl th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 6px 10px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.3); }
+      .cgx-tbl td { padding: 7px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
       .cgx-tbl tr:hover td { background: var(--panel-2); }
       .cgx-tbl-title { font-weight: 600; }
       .cgx-tbl-sub { color: var(--muted); font-size: 12px; }
@@ -6007,14 +6762,14 @@
 
       .cgx-vote { display: flex; gap: 6px; justify-content: flex-end; }
       .cgx-vote-input {
-        width: 92px; background: var(--panel-2); border: 1px solid #3e3931; border-radius: 8px;
+        width: 92px; background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 8px;
         color: var(--text); padding: 6px 9px; font-size: 13px; outline: none;
       }
       .cgx-vote-input:focus { border-color: var(--accent); }
 
       .cgx-bars {
         max-height: 420px; overflow-y: auto; padding-right: 6px;
-        scrollbar-width: thin; scrollbar-color: #3e3931 transparent;
+        scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
       }
       .cgx-bar-row {
         display: grid; grid-template-columns: 70px 1fr 60px; gap: 10px; align-items: center;
@@ -6037,7 +6792,7 @@
       .cgx-rank-row img { width: 30px; height: 30px; object-fit: contain; }
       .cgx-rank-mystery { width: 30px; text-align: center; color: var(--muted); font-weight: 700; }
       .cgx-rank-row .range { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
-      .cgx-rank-row.on { border-color: var(--accent); background: rgba(240, 160, 40, 0.07); }
+      .cgx-rank-row.on { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.07); }
 
       .cgx-irc-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
       .cgx-irc-box { display: none; margin-top: 16px; }
@@ -6056,11 +6811,11 @@
       .cgx-article .cgx-embed { line-height: 1.65; }
       .cgx-article .cgx-embed p { margin: 0 0 12px; }
       .cgx-article .cgx-embed table { border-collapse: collapse; margin: 12px 0; }
-      .cgx-article .cgx-embed table td { border: 1px solid #37332b; padding: 5px 12px; background: none; }
+      .cgx-article .cgx-embed table td { border: 1px solid var(--line); padding: 5px 12px; background: none; }
       .cgx-staff-head { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 0 4px; }
       .cgx-staff-head h2 { margin: 0; font-size: 20px; }
       .cgx-staff-head .cgx-rad svg { width: 26px; height: 26px; }
-      .cgx-staff-tier { text-align: center; padding: 18px 0 14px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+      .cgx-staff-tier { text-align: center; padding: 18px 0 14px; border-top: 1px solid var(--hair); }
       .cgx-staff-tier:nth-child(2) { border-top: 0; }
       .cgx-staff-tier .tier-label {
         font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em;
@@ -6068,11 +6823,11 @@
       }
       .cgx-staff-name {
         display: inline-flex; align-items: center; padding: 7px 16px; margin: 3px;
-        background: var(--panel-2); border: 1px solid #3e3931; border-radius: 999px;
+        background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 999px;
         font-weight: 700; font-size: 14px;
       }
       .cgx-staff-name:hover { border-color: var(--accent); }
-      .cgx-staff-tier.top .cgx-staff-name { font-size: 17px; padding: 10px 24px; border-color: rgba(240, 160, 40, 0.4); }
+      .cgx-staff-tier.top .cgx-staff-name { font-size: 17px; padding: 10px 24px; border-color: rgba(var(--accent-rgb), 0.4); }
       /* user page hero: stacked avatar → name → full-width tile grid */
       .cgx-user-hero .cgx-hero-poster { display: block; }
       .cgx-user-hero .cgx-hero-title { margin: 12px 0 4px; }
@@ -6092,14 +6847,14 @@
       }
       .cgx-cigar-clamp.open { white-space: normal; -webkit-mask-image: none; mask-image: none; }
       .cgx-cigar-toggle {
-        background: none; border: 1px solid #3e3931; border-radius: 6px; color: var(--muted);
+        background: none; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--muted);
         cursor: pointer; font-size: 10px; line-height: 1; padding: 2px 7px; margin-left: 8px; vertical-align: 1px;
       }
       .cgx-cigar-toggle:hover { color: var(--text); border-color: var(--accent); }
       .cgx-friend-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 10px; }
       .cgx-friend-row {
         display: flex; align-items: center; gap: 12px; padding: 10px 12px;
-        border-radius: var(--radius); background: var(--panel-2); border: 1px solid #37332b;
+        border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--line);
         min-width: 0;
       }
       .cgx-friend-row:hover { border-color: var(--accent); }
@@ -6109,7 +6864,7 @@
       .cgx-friend-row .spacer { flex: 1; }
       .cgx-friend-ava {
         width: 44px; height: 44px; border-radius: 50%; overflow: hidden; flex: none;
-        background: var(--panel-2); border: 1px solid #37332b;
+        background: var(--panel-2); border: 1px solid var(--line);
       }
       .cgx-friend-ava img { width: 100%; height: 100%; object-fit: cover; display: block; }
       .cgx-friend-name { display: flex; align-items: center; gap: 6px; font-weight: 600; }
@@ -6131,18 +6886,18 @@
       .cgx-repform table, .cgx-repform tr { background: none !important; }
       .cgx-repform input:not([type]), .cgx-repform input[type="text"], .cgx-repform input[type="password"], .cgx-repform input[type="email"],
       .cgx-repform select, .cgx-repform textarea, .cgx-repform input[type="file"] {
-        background: var(--panel-2); border: 1px solid #3e3931; border-radius: 8px;
+        background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 8px;
         color: var(--text); padding: 8px 10px; font-size: 13.5px; outline: none; max-width: 100%;
       }
       .cgx-repform textarea { width: 100%; min-height: 110px; box-sizing: border-box; }
       .cgx-repform input:focus, .cgx-repform select:focus, .cgx-repform textarea:focus { border-color: var(--accent); }
       .cgx-repform input[type="submit"] {
-        background: var(--accent); border: 0; border-radius: 8px; color: #1e1c19;
+        background: var(--accent); border: 0; border-radius: 8px; color: var(--on-accent);
         font-weight: 700; font-size: 14px; padding: 9px 22px; cursor: pointer;
       }
       .cgx-repform input[type="submit"]:hover { background: var(--accent-2); }
       .cgx-repform input[type="button"], .cgx-repform button {
-        background: var(--panel-2); border: 1px solid #3e3931; border-radius: 8px;
+        background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 8px;
         color: var(--text); padding: 7px 14px; font-size: 13px; cursor: pointer;
       }
       .cgx-repform input[type="checkbox"], .cgx-repform input[type="radio"] { accent-color: var(--accent); }
@@ -6163,7 +6918,7 @@
       .cgx-uprow .cgx-upfield:last-child { flex: 1; }
       .cgx-upnote { color: var(--muted); font-size: 12.5px; line-height: 1.45; }
       .cgx-upcallout {
-        border-left: 3px solid var(--accent); background: rgba(240, 160, 40, 0.07);
+        border-left: 3px solid var(--accent); background: rgba(var(--accent-rgb), 0.07);
         padding: 9px 13px; border-radius: 0 8px 8px 0; font-size: 13px; margin-bottom: 12px;
       }
       .cgx-upcallout table, .cgx-upcallout td, .cgx-upcallout big {
@@ -6173,7 +6928,7 @@
       .cgx-upcheck { display: flex; align-items: center; gap: 9px; font-size: 13.5px; cursor: pointer; }
       .cgx-dropzone {
         display: flex; align-items: center; gap: 12px; padding: 20px 22px; cursor: pointer;
-        border: 2px dashed #3e3931; border-radius: var(--radius); transition: border-color 0.15s ease;
+        border: 2px dashed var(--line-strong); border-radius: var(--radius); transition: border-color 0.15s ease;
       }
       .cgx-dropzone:hover, .cgx-dropzone.drag { border-color: var(--accent); }
       .cgx-dropzone.has-file { border-style: solid; border-color: var(--green); }
@@ -6209,10 +6964,10 @@
       .cgx-crumb a:hover { color: var(--text); }
       .cgx-forum-row, .cgx-topic-row {
         display: flex; align-items: center; gap: 18px; padding: 12px 12px;
-        border-top: 1px solid rgba(255, 255, 255, 0.05);
+        border-top: 1px solid var(--hair);
       }
       .cgx-forum-row:first-child, .cgx-topic-row:first-child { border-top: 0; }
-      .cgx-forum-row:hover, .cgx-topic-row:hover { background: rgba(255, 255, 255, 0.02); }
+      .cgx-forum-row:hover, .cgx-topic-row:hover { background: var(--wash); }
       .cgx-forum-main, .cgx-topic-main { flex: 1; min-width: 0; }
       .cgx-forum-name { font-weight: 700; font-size: 15.5px; }
       .cgx-forum-desc { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
@@ -6224,10 +6979,10 @@
       .cgx-forum-last { flex: none; width: 220px; font-size: 12.5px; }
       .cgx-forum-last .sub, .cgx-forum-main .sub, .cgx-topic-main .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
       .cgx-topic-title { font-weight: 600; }
-      .cgx-topic-row.sticky { background: rgba(240, 160, 40, 0.04); }
+      .cgx-topic-row.sticky { background: rgba(var(--accent-rgb), 0.04); }
       .cgx-flag {
         display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
-        background: var(--accent); color: #1e1c19; border-radius: 4px; padding: 1px 6px; margin-right: 8px; vertical-align: 2px;
+        background: var(--accent); color: var(--on-accent); border-radius: 4px; padding: 1px 6px; margin-right: 8px; vertical-align: 2px;
       }
       .cgx-flag.lock { background: var(--red); }
       .cgx-minipages { margin-left: 8px; }
@@ -6239,17 +6994,17 @@
       a.cgx-newmark.on:hover img { filter: brightness(1.25); }
       .cgx-btn .cgx-rad { color: inherit; }
       .cgx-btn .cgx-rad svg { width: 13px; height: 13px; }
-      .cgx-post { display: flex; gap: 0; background: var(--panel); border: 1px solid #2e2b25; border-radius: 12px; margin-bottom: 14px; overflow: hidden; }
+      .cgx-post { display: flex; gap: 0; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 12px; margin-bottom: 14px; overflow: hidden; box-shadow: var(--shadow); }
       .cgx-post-side {
         flex: none; width: 158px; padding: 16px 14px; text-align: center;
-        background: var(--panel-2); border-right: 1px solid rgba(0, 0, 0, 0.25);
+        background: var(--panel-2); border-right: 1px solid var(--sink);
       }
       .cgx-post-avatar { max-width: 120px; border-radius: 8px; margin-bottom: 8px; }
       .cgx-post-user { display: block; font-weight: 700; font-size: 14.5px; overflow-wrap: anywhere; }
       .cgx-post-class { color: var(--muted); font-size: 11.5px; margin-top: 1px; }
       .cgx-post-stats { color: var(--muted); font-size: 11px; margin-top: 8px; line-height: 1.5; }
       .cgx-post-main { flex: 1; min-width: 0; padding: 12px 18px 16px; }
-      .cgx-post-head { display: flex; align-items: center; gap: 10px; padding-bottom: 8px; margin-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+      .cgx-post-head { display: flex; align-items: center; gap: 10px; padding-bottom: 8px; margin-bottom: 10px; border-bottom: 1px solid var(--hair); }
       .cgx-post-date { color: var(--muted); font-size: 12.5px; }
       .cgx-post-date .ago { opacity: 0.7; }
       .cgx-post-head .spacer { flex: 1; }
@@ -6257,12 +7012,12 @@
       .cgx-post-body { line-height: 1.6; overflow-x: auto; }
       .cgx-post-hidden {
         display: flex; align-items: center; gap: 10px; padding: 8px 14px; margin-bottom: 14px;
-        background: var(--panel); border: 1px dashed #3e3931; border-radius: 12px;
+        background: var(--panel); border: 1px dashed var(--line-strong); border-radius: 12px;
         color: var(--muted); font-size: 12.5px;
       }
       .cgx-post-hidden .spacer { flex: 1; }
-      .cgx-post-hidden .cgx-btn { color: #7b7466 !important; border-color: transparent; font-size: 12px; }
-      .cgx-post-hidden .cgx-btn:hover { color: var(--muted) !important; border-color: #3e3931; }
+      .cgx-post-hidden .cgx-btn { color: var(--faint) !important; border-color: transparent; font-size: 12px; }
+      .cgx-post-hidden .cgx-btn:hover { color: var(--muted) !important; border-color: var(--line-strong); }
       .cgx-hide-user { opacity: 0; transition: opacity 0.15s ease; }
       .cgx-post:hover .cgx-hide-user, .cgx-hide-user:focus-visible { opacity: 1; }
       .cgx-hidden-menu { position: relative; }
@@ -6270,41 +7025,133 @@
       .cgx-hidden-menu summary::-webkit-details-marker { display: none; }
       .cgx-hidden-menu-list {
         position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 230px;
-        background: var(--panel); border: 1px solid #3e3931; border-radius: 10px; padding: 6px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+        background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px; padding: 6px;
+        box-shadow: var(--shadow-lg);
       }
       .cgx-hidden-menu-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 4px 4px 8px; }
       .cgx-hidden-menu.tile summary { display: block; }
-      .cgx-hidden-menu.tile summary:hover { background: #322e28; }
+      .cgx-hidden-menu.tile summary:hover { background: var(--hover); }
       /* the tile lives at the bottom of the page — open the list upward */
       .cgx-hidden-menu.tile .cgx-hidden-menu-list { top: auto; bottom: calc(100% + 6px); right: auto; left: 0; }
       /* BBCode quotes: <p.sub>X wrote:</p><div.quote>…</div>, nestable */
       .cgx-embed p.sub { margin: 12px 0 0; font-size: 12px; font-weight: 600; color: var(--muted); }
       #cg-redux-root .cgx-embed .quote {
-        border: 0; border-left: 3px solid var(--accent); background: rgba(240, 160, 40, 0.05);
+        border: 0; border-left: 3px solid var(--accent); background: rgba(var(--accent-rgb), 0.05);
         border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 4px 0 14px;
       }
-      #cg-redux-root .cgx-embed .quote .quote { border-left-color: #665f54; background: rgba(255, 255, 255, 0.03); }
+      #cg-redux-root .cgx-embed .quote .quote { border-left-color: var(--line-strong); background: var(--wash); }
       .cgx-embed .quote p.sub:first-child { margin-top: 0; }
       .cgx-reply textarea { width: 100%; min-height: 130px; }
       section.cgx-reply input[type="submit"] { display: block; margin-top: 10px; }
       .cgx-bbbar { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; margin: 2px 0 6px; }
       .cgx-bbbar .cgx-btn { min-width: 30px; padding: 3px 8px; color: var(--muted) !important; }
       .cgx-bbbar .cgx-btn:hover { color: var(--text) !important; border-color: var(--accent); }
-      .cgx-bbbar-div { width: 1px; height: 16px; background: #3e3931; margin: 0 5px; }
+      .cgx-bbbar-div { width: 1px; height: 16px; background: var(--line-strong); margin: 0 5px; }
       .cgx-bb-b { font-weight: 700; }
       .cgx-bb-i { font-style: italic; }
       .cgx-bb-u { text-decoration: underline; }
       .cgx-bb-s { text-decoration: line-through; }
+      /* toolbar dropdowns (smilies, site codes) */
+      .cgx-bbmenu { position: relative; display: inline-block; }
+      .cgx-bbmenu summary { list-style: none; color: var(--muted) !important; }
+      .cgx-bbmenu summary::-webkit-details-marker { display: none; }
+      .cgx-bbmenu[open] summary, .cgx-bbmenu summary:hover { color: var(--text) !important; border-color: var(--accent); }
+      .cgx-bbmenu-list {
+        position: absolute; left: 0; top: calc(100% + 6px); z-index: 25;
+        background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px;
+        padding: 8px; box-shadow: var(--shadow-lg); max-height: 320px; overflow-y: auto;
+        scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
+      }
+      .cgx-bbmenu-list.smilies { display: grid; grid-template-columns: repeat(8, 30px); gap: 2px; }
+      .cgx-bbmenu-list.codes { display: flex; flex-direction: column; gap: 1px; width: 340px; }
+      .cgx-bbmenu-note { color: var(--muted); font-size: 12px; padding: 2px 4px; white-space: nowrap; }
+      .cgx-smilie {
+        display: flex; align-items: center; justify-content: center; width: 30px; height: 30px;
+        background: none; border: 0; border-radius: 6px; cursor: pointer; padding: 0;
+      }
+      .cgx-smilie:hover { background: var(--hover); }
+      .cgx-smilie img { max-width: 22px; max-height: 22px; }
+      .cgx-bbmenu-row {
+        display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left;
+        background: none; border: 0; border-radius: 7px; padding: 5px 8px; cursor: pointer; font: inherit;
+      }
+      .cgx-bbmenu-row:hover { background: var(--hover); }
+      .cgx-bbmenu-row code { color: var(--accent-2); font-size: 12px; }
+      .cgx-bbmenu-row .desc { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+
+      /* live BBCode preview under a post box */
+      .cgx-preview {
+        margin-top: 8px; background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 8px;
+      }
+      .cgx-preview > summary {
+        cursor: pointer; list-style: none; padding: 7px 12px;
+        font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); font-weight: 700;
+      }
+      .cgx-preview > summary::-webkit-details-marker { display: none; }
+      .cgx-preview > summary::before { content: '▸ '; color: var(--accent); }
+      .cgx-preview[open] > summary::before { content: '▾ '; }
+      .cgx-preview-body { padding: 2px 14px 12px; line-height: 1.6; min-height: 20px; }
+      .cgx-preview-body img { max-width: 100%; height: auto; border-radius: 6px; }
+      .cgx-preview-body ul { margin: 6px 0; padding-left: 22px; }
+      .cgx-preview-body pre { background: var(--panel); border-radius: 6px; padding: 8px 10px; overflow-x: auto; }
+      /* matches legacy's hover-to-reveal spoiler behaviour */
+      .cgx-pv-spoiler { background: var(--faint); color: transparent; border-radius: 3px; }
+      .cgx-pv-spoiler:hover { background: none; color: inherit; }
+
+      /* smilies.php */
+      .cgx-smilie-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
+      .cgx-smilie-card {
+        display: flex; align-items: center; gap: 10px; padding: 7px 10px; min-width: 0;
+        background: var(--panel-2); border: 1px solid transparent; border-radius: 8px;
+        color: var(--text); font: inherit; cursor: pointer; text-align: left;
+      }
+      .cgx-smilie-card:hover { border-color: var(--accent); }
+      .cgx-smilie-card.copied { border-color: var(--green); }
+      .cgx-smilie-card.copied code::after { content: ' copied'; color: var(--green); }
+      .cgx-smilie-card img { max-width: 24px; max-height: 24px; flex: none; }
+      .cgx-smilie-card code { font-size: 12px; color: var(--accent-2); overflow: hidden; text-overflow: ellipsis; }
+
+      /* COCKS page listings */
+      .cgx-page-list { display: flex; flex-direction: column; }
+      .cgx-page-row {
+        display: flex; align-items: baseline; gap: 16px; padding: 9px 10px;
+        border-top: 1px solid var(--hair); color: var(--text) !important; min-width: 0;
+      }
+      .cgx-page-row:first-child { border-top: 0; }
+      .cgx-page-row:hover { background: var(--wash); }
+      .cgx-page-row .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+      .cgx-page-row .name { font-weight: 600; color: var(--accent-2); }
+      .cgx-page-row:hover .name { color: var(--accent); }
+      .cgx-page-row .desc { color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+      .cgx-page-row .type, .cgx-page-row .curator, .cgx-page-row .edited {
+        flex: none; color: var(--muted); font-size: 12px; white-space: nowrap;
+      }
+      .cgx-page-row .type { width: 92px; }
+      .cgx-page-row .curator { width: 120px; overflow: hidden; text-overflow: ellipsis; }
+      .cgx-page-row .edited { width: 84px; text-align: right; font-variant-numeric: tabular-nums; }
+      @media (max-width: 720px) {
+        .cgx-page-row { flex-wrap: wrap; }
+        .cgx-page-row .type, .cgx-page-row .curator, .cgx-page-row .edited { width: auto; }
+      }
+
+      /* thread jump arrows */
+      .cgx-jump {
+        position: fixed; right: 18px; bottom: 22px; z-index: 35;
+        display: none; flex-direction: column; gap: 6px;
+      }
+      .cgx-jump.on { display: flex; }
+      .cgx-jump .cgx-btn { background: var(--panel); box-shadow: var(--shadow); opacity: 0.75; }
+      .cgx-jump .cgx-btn:hover { opacity: 1; border-color: var(--accent); }
+
       .cgx-newposts-link { margin-left: 10px; font-size: 11.5px; color: var(--green) !important; font-weight: 600; }
       .cgx-newposts-link:hover { text-decoration: underline; }
       .cgx-lastposts { margin: 22px 0 12px; font-size: 15px; color: var(--muted); }
       .cgx-msg-row {
         display: flex; align-items: center; gap: 14px; padding: 10px 12px;
-        border-top: 1px solid rgba(255, 255, 255, 0.05);
+        border-top: 1px solid var(--hair);
       }
       .cgx-msg-row:first-child { border-top: 0; }
-      .cgx-msg-row:hover { background: rgba(255, 255, 255, 0.02); }
+      .cgx-msg-row:hover { background: var(--wash); }
       .cgx-msg-row.unread .cgx-msg-subject { font-weight: 700; }
       .cgx-msg-status { width: 20px; flex: none; }
       .cgx-msg-main { flex: 1; min-width: 0; }
@@ -6317,13 +7164,13 @@
       .cgx-tag-card h3 { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent-2); }
       .cgx-tag-card .cgx-hint { margin: 4px 0 10px; }
       .cgx-tag-syntax {
-        display: block; background: var(--panel-2); border: 1px solid #3e3931; border-radius: 8px;
+        display: block; background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 8px;
         padding: 8px 10px; font-size: 12px; overflow-x: auto; white-space: pre-wrap;
       }
-      .cgx-tag-result { margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(255, 255, 255, 0.1); font-size: 13.5px; }
+      .cgx-tag-result { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--hair-strong); font-size: 13.5px; }
       .cgx-msg-meta {
         display: flex; gap: 18px; align-items: baseline; padding-bottom: 10px; margin-bottom: 12px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.06); font-size: 13px;
+        border-bottom: 1px solid var(--hair); font-size: 13px;
       }
 
       /* login */
@@ -6332,24 +7179,24 @@
       .cgx-login-page .cgx-brand { font-size: 27px; }
       .cgx-login-page .cgx-brand .cgx-rad svg { width: 32px; height: 32px; }
       .cgx-login-alert {
-        background: rgba(240, 160, 40, 0.1); border: 1px solid rgba(240, 160, 40, 0.45);
+        background: rgba(var(--accent-rgb), 0.1); border: 1px solid rgba(var(--accent-rgb), 0.45);
         border-radius: 8px; padding: 10px 16px; font-size: 13px; text-align: center;
       }
       .cgx-login-card { width: 100%; padding: 26px 28px; text-align: center; }
       .cgx-login-notice {
-        background: rgba(224, 108, 90, 0.12); border: 1px solid rgba(224, 108, 90, 0.4);
+        background: rgba(var(--red-rgb), 0.12); border: 1px solid rgba(var(--red-rgb), 0.4);
         border-radius: 8px; padding: 10px 14px; font-size: 12.5px; line-height: 1.55; margin-bottom: 18px; text-align: left;
       }
       .cgx-login-form table { margin: 0 auto; border-collapse: collapse; }
       .cgx-login-form td { padding: 5px 7px; background: none !important; border: 0 !important; text-align: left; color: var(--muted); font-size: 13px; }
       .cgx-login-form input[type="text"], .cgx-login-form input[type="password"] {
-        background: var(--panel-2); border: 1px solid #3e3931; border-radius: 8px;
+        background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 8px;
         color: var(--text); padding: 10px 13px; font-size: 15px; width: 240px; outline: none;
       }
       .cgx-login-form input[type="text"]:focus, .cgx-login-form input[type="password"]:focus { border-color: var(--accent); }
       .cgx-login-form input[type="submit"] {
         display: block; margin: 14px auto 0; background: var(--accent); border: 0; border-radius: 8px;
-        color: #1e1c19; font-weight: 700; font-size: 14px; padding: 10px 28px; cursor: pointer;
+        color: var(--on-accent); font-weight: 700; font-size: 14px; padding: 10px 28px; cursor: pointer;
       }
       .cgx-login-form input[type="submit"]:hover { background: var(--accent-2); }
       .cgx-login-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 22px; margin-top: 18px; font-size: 13px; color: var(--muted); }
@@ -6375,7 +7222,7 @@
       .cgx-cocks-search .cgx-search { flex: 1 1 260px; max-width: 420px; }
       .cgx-cocks-search label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
       .cgx-select {
-        background: var(--panel-2); border: 1px solid #3e3931; border-radius: 8px;
+        background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 8px;
         color: var(--text); padding: 7px 9px; font-size: 13px; outline: none;
       }
       .cgx-select:focus { border-color: var(--accent); }
@@ -6418,43 +7265,46 @@
       .cgx-rank-badge.g { background: #e8c352; color: #1e1c19; }
       .cgx-rank-badge.s { background: #c0c4cc; color: #1e1c19; }
       .cgx-rank-badge.b { background: #c08a52; color: #1e1c19; }
-      .cgx-tbl tr.me td { background: rgba(240, 160, 40, 0.08); }
+      .cgx-tbl tr.me td { background: rgba(var(--accent-rgb), 0.08); }
       .cgx-ratio.good { color: var(--green); }
       .cgx-ratio.bad { color: var(--red); }
 
       .cgx-invite-form { display: flex; gap: 10px; margin-top: 14px; }
       .cgx-invite-form .cgx-search { max-width: 340px; }
 
-      .cgx-tinfo summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; list-style: none; }
-      .cgx-tinfo summary::-webkit-details-marker { display: none; }
-      .cgx-tinfo summary::before { content: '▸'; color: var(--accent); font-size: 13px; }
-      .cgx-tinfo[open] summary::before { content: '▾'; }
-      .cgx-tinfo summary h3 { margin: 0; }
-      .cgx-tinfo[open] summary { margin-bottom: 12px; }
+      .cgx-tinfo > summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; list-style: none; }
+      .cgx-tinfo > summary::-webkit-details-marker { display: none; }
+      .cgx-tinfo > summary::before { content: '▸'; color: var(--accent); font-size: 13px; }
+      .cgx-tinfo[open] > summary::before { content: '▾'; }
+      .cgx-tinfo > summary h3 { margin: 0; }
+      .cgx-tinfo[open] > summary { margin-bottom: 12px; }
 
       .cgx-featured {
-        margin: 18px 24px 14px; padding: 14px 16px;
-        background: var(--panel); border: 1px solid #2e2b25; border-radius: 10px;
+        margin: 18px 0 14px; padding: 14px 16px;
+        background: var(--panel); border-radius: 10px; box-shadow: var(--shadow);
+        /* accent outline — the featured shelf is the one panel that should
+           announce itself against the ordinary browse cards below it */
+        border: 1px solid rgba(var(--accent-rgb), 0.55);
       }
-      .cgx-featured summary { display: flex; align-items: baseline; gap: 10px; cursor: pointer; list-style: none; }
-      .cgx-featured[open] summary { margin-bottom: 10px; }
-      .cgx-featured summary::-webkit-details-marker { display: none; }
-      .cgx-featured summary::before { content: '▸'; color: var(--accent); font-size: 13px; }
-      .cgx-featured[open] summary::before { content: '▾'; }
+      .cgx-featured > summary { display: flex; align-items: baseline; gap: 10px; cursor: pointer; list-style: none; }
+      .cgx-featured[open] > summary { margin-bottom: 10px; }
+      .cgx-featured > summary::-webkit-details-marker { display: none; }
+      .cgx-featured > summary::before { content: '▸'; color: var(--accent); font-size: 13px; }
+      .cgx-featured[open] > summary::before { content: '▾'; }
       .cgx-featured h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin: 0; }
       .cgx-featured-body { display: flex; flex-direction: column; gap: 8px; }
       .cgx-countdown { font-size: 12px; color: var(--muted); opacity: 0.8; }
       /* sized to match .cgx-badge.dupes exactly — they sit side by side */
       .cgx-bmark-pill {
         font-size: 10.5px; font-weight: 500; color: var(--muted); background: none; cursor: pointer;
-        border: 1px solid #3e3931; border-radius: 999px; padding: 1px 7px;
+        border: 1px solid var(--line-strong); border-radius: 999px; padding: 1px 7px;
         font-family: inherit; line-height: 1.5; white-space: nowrap;
       }
       .cgx-bmark-pill:hover { color: var(--accent); border-color: var(--accent); }
-      .cgx-bmark-pill.on { color: var(--accent); border-color: rgba(240, 160, 40, 0.45); }
+      .cgx-bmark-pill.on { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.45); }
       .cgx-bonus {
         font-size: 11px; font-weight: 600; color: var(--accent);
-        border: 1px solid rgba(240, 160, 40, 0.45); border-radius: 999px;
+        border: 1px solid rgba(var(--accent-rgb), 0.45); border-radius: 999px;
         padding: 1px 8px;
       }
       .cgx-featured .cgx-card { border-left: 3px solid var(--accent); }
@@ -6462,17 +7312,18 @@
       .cgx-list { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
       .cgx-card {
         display: flex; align-items: center; gap: 16px; padding: 12px 16px;
-        background: var(--panel); border: 1px solid #2e2b25; border-radius: var(--radius);
+        background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius);
+        box-shadow: var(--shadow);
       }
-      .cgx-card:hover { border-color: #47423a; background: var(--panel-2); }
+      .cgx-card:hover { border-color: var(--line-strong); background: var(--panel-2); }
       /* Snatched-by-user (legacy row class torrenttable_usersnatched) — green
          edge + tint, matching old CG's green row highlight. Declared after the
          featured rule so it wins the border-left on featured cards too. */
       .cgx-card.snatched, .cgx-featured .cgx-card.snatched {
         border-left: 3px solid var(--green);
-        background: linear-gradient(to right, rgba(125, 196, 106, 0.08), rgba(125, 196, 106, 0.02) 55%, transparent), var(--panel);
+        background: linear-gradient(to right, rgba(var(--green-rgb), 0.08), rgba(var(--green-rgb), 0.02) 55%, transparent), var(--panel);
       }
-      .cgx-card.snatched:hover { background: linear-gradient(to right, rgba(125, 196, 106, 0.08), rgba(125, 196, 106, 0.02) 55%, transparent), var(--panel-2); }
+      .cgx-card.snatched:hover { background: linear-gradient(to right, rgba(var(--green-rgb), 0.08), rgba(var(--green-rgb), 0.02) 55%, transparent), var(--panel-2); }
       .cgx-card.snatched .cgx-title { color: var(--green); }
       .cgx-cat { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; flex: none; }
       .cgx-card-body { flex: 1; min-width: 0; }
@@ -6480,7 +7331,7 @@
       .cgx-title { font-weight: 600; font-size: 15.5px; color: var(--text) !important; }
       .cgx-title:hover { color: var(--accent) !important; }
       .cgx-tag {
-        background: var(--panel-2); border: 1px solid #3e3931; color: var(--muted);
+        background: var(--panel-2); border: 1px solid var(--line-strong); color: var(--muted);
         font-size: 11px; padding: 1px 8px; border-radius: 999px; white-space: nowrap;
       }
       .cgx-sub { color: var(--muted); font-size: 13px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -6505,20 +7356,20 @@
       .lb-dot.b { background: #40bcf4; }
 
       .cgx-badge { font-size: 10.5px; border-radius: 4px; padding: 1px 7px; font-weight: 700; white-space: nowrap; }
-      .cgx-badge.new { background: var(--green); color: #1e1c19; }
-      .cgx-badge.dupes { border: 1px solid #3e3931; border-radius: 999px; font-weight: 500; color: var(--muted) !important; }
+      .cgx-badge.new { background: var(--green); color: var(--on-accent); }
+      .cgx-badge.dupes { border: 1px solid var(--line-strong); border-radius: 999px; font-weight: 500; color: var(--muted) !important; }
       .cgx-badge.dupes.many { color: var(--green) !important; border-color: var(--green); }
       .cgx-imdb-title { color: var(--green); font-size: 12.5px; margin-top: 1px; }
 
       .cgx-pages { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 26px 0; justify-content: center; }
       .cgx-page {
-        background: var(--panel); border: 1px solid #3e3931; border-radius: 8px;
+        background: var(--panel); border: 1px solid var(--line-strong); border-radius: 8px;
         padding: 6px 12px; font-size: 13px; color: var(--muted) !important;
       }
       .cgx-page:hover { color: var(--text) !important; border-color: var(--accent); }
       span.cgx-page.active {
         background: var(--accent); border-color: var(--accent);
-        color: #1e1c19 !important; font-weight: 700;
+        color: var(--on-accent) !important; font-weight: 700;
       }
       .cgx-pagedots { color: var(--muted); padding: 0 2px; }
     `;
