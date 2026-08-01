@@ -2,7 +2,7 @@
 // @name         Cinemageddon Redux
 // @namespace    cg-redux
 // @description  Modern frontend rework for cinemageddon.net, rendered from the legacy server HTML
-// @version      0.23.8
+// @version      0.24.0
 // @author       maxh0p
 // @license      MIT
 // @icon         https://cinemageddon.net/favicon.ico
@@ -505,9 +505,12 @@
     const scored = sections.map((s) => s.links.map((l) => score(l.href)));
     const best = Math.max(0, ...scored.flat());
 
+    // Search goes first, not last like the legacy site: at the bottom of a
+    // scrolling sidebar it had to be scrolled to every time (tester feedback).
     const aside = el(
       'aside',
       { class: 'cgx-sidebar' },
+      searchBlock,
       sections.map((s, si) =>
         el(
           'div',
@@ -517,8 +520,7 @@
             el('a', { class: 'cgx-side-link' + (best && scored[si][li] === best ? ' active' : ''), href: l.href }, l.label)
           )
         )
-      ),
-      searchBlock
+      )
     );
 
     // The sidebar is its own scroll container, so a link far down the list can
@@ -615,7 +617,7 @@
     const navOpen = store.get('sidebarOpen', true);
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.23.8', class: navOpen ? null : 'nav-closed' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.24.0', class: navOpen ? null : 'nav-closed' },
       el(
         'header',
         { class: 'cgx-topbar' },
@@ -3105,7 +3107,7 @@
 
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.23.8', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.24.0', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap' },
@@ -3155,7 +3157,7 @@
 
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.23.8', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.24.0', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap wide' },
@@ -3201,7 +3203,7 @@
     }
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.23.8', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.24.0', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap' },
@@ -4706,6 +4708,40 @@
     throw new Error('unhandled forums action: ' + action);
   }
 
+  // The legacy footer row "Search | View unread | Catch up" as buttons. These
+  // are three different things — View unread LISTS topics with unread posts,
+  // Catch up marks every post READ — so Catch up gets a confirm(): a tester
+  // clicked through expecting a list and lost their unread state.
+  function forumActionLinks(doc) {
+    const link = (re) =>
+      [...doc.querySelectorAll('a')].find((a) => {
+        const h = a.getAttribute('href') || '';
+        return (h.startsWith('?') || h.includes('forums.php')) && re.test(h);
+      });
+    const search = link(/(?:^|\?|&)action=search/i);
+    const unread = link(/(?:^|\?|&)action=viewunread/i);
+    const catchup = link(/(?:\?|&)catchup/i);
+    const onUnread = new URLSearchParams(location.search).get('action') === 'viewunread';
+    return [
+      search ? el('a', { class: 'cgx-btn ghost', href: search.href }, 'Search') : null,
+      unread && !onUnread
+        ? el('a', { class: 'cgx-btn ghost', href: unread.href, title: 'All topics with unread posts, across every forum' }, 'View unread')
+        : null,
+      catchup
+        ? el(
+            'a',
+            {
+              class: 'cgx-btn ghost',
+              href: catchup.href,
+              title: 'Mark every forum post as read',
+              onclick: (e) => confirm('Mark every forum post as read?') || e.preventDefault(),
+            },
+            '✓ Catch up'
+          )
+        : null,
+    ];
+  }
+
   function forumsIndex(doc) {
     const t = [...doc.querySelectorAll('table')].find(
       (x) => x.rows.length > 2 && /Forum\s*Topics\s*Posts/i.test(txt(x.rows[0]))
@@ -4745,7 +4781,6 @@
           .map((s) => s.trim())
           .filter(Boolean)
       : [];
-    const catchup = [...doc.querySelectorAll('a')].find((a) => /catchup/i.test(a.getAttribute('href') || ''));
     const hiddenTile = hiddenUsersMenu(true);
 
     renderShell(
@@ -4757,7 +4792,7 @@
           'div',
           { class: 'cgx-panel-head cgx-forums-top' },
           el('h2', { class: 'cgx-page-title' }, 'Forums'),
-          catchup ? el('a', { class: 'cgx-btn ghost', href: catchup.href, title: txt(catchup) || null }, '✓ View unread') : null
+          el('div', { class: 'cgx-forums-actions' }, forumActionLinks(doc))
         ),
         el(
           'section',
@@ -4946,7 +4981,6 @@
           .filter(Boolean)
       : [];
     const note = [...doc.querySelectorAll('p')].map((p) => txt(p)).find((s) => /items found/i.test(s));
-    const catchup = [...doc.querySelectorAll('a')].find((a) => /catchup/i.test(a.getAttribute('href') || ''));
 
     renderShell(
       doc,
@@ -4957,7 +4991,7 @@
           'div',
           { class: 'cgx-panel-head cgx-forums-top' },
           el('h2', { class: 'cgx-page-title' }, el('a', { href: '/forums.php' }, 'Forums'), ' › Unread topics', el('span', { class: 'cgx-board-note' }, `${topics.length}${note && /more than/i.test(note) ? '+' : ''}`)),
-          catchup ? el('a', { class: 'cgx-btn ghost', href: catchup.href, title: txt(catchup) || null }, '✓ View unread') : null
+          el('div', { class: 'cgx-forums-actions' }, forumActionLinks(doc))
         ),
         el(
           'section',
@@ -5275,8 +5309,8 @@
   // tags.php is CG's own BBCode reference — one 4-row table per tag
   // (Description / Syntax / Example / Result). Reading the toolbar's
   // site-specific codes out of it means the buttons are always exactly the
-  // codes this site supports: video embeds, mediainfo, user/torrent/thread/
-  // imdb/search links, whatever gets added later.
+  // codes this site supports: video embeds, user/torrent/thread/imdb/search
+  // links, whatever gets added later.
   function parseBbTags(doc) {
     const out = [];
     const seen = new Set();
@@ -5289,6 +5323,11 @@
       if (!name || seen.has(name)) continue;
       seen.add(name);
       out.push({ name, syntax, desc: txt(cellFor('Description')), example: txt(cellFor('Example')) });
+    }
+    // [mediainfo] works in posts but tags.php doesn't document it, so it can't
+    // be parsed out — added by hand until the site starts listing it.
+    if (out.length && !seen.has('mediainfo')) {
+      out.push({ name: 'mediainfo', syntax: '[mediainfo]MEDIAINFO DUMP[/mediainfo]', desc: 'Formats a MediaInfo dump', example: '' });
     }
     return out;
   }
@@ -6420,8 +6459,8 @@
            viewport and the page has to be scrolled to reach it.
            --topbar-h is measured live: a hardcoded 63px overshoots whenever the
            topbar wraps to two rows (narrow window, long username, big stats),
-           which pushed the sidebar's last section — Search — off screen with no
-           way to scroll to it. */
+           which pushed the sidebar's last section off screen with no way to
+           scroll to it. */
         position: sticky; top: var(--topbar-h); max-height: calc(100vh / 1.1 - var(--topbar-h)); overflow-y: auto;
         padding: 20px 16px 30px; border-right: 1px solid var(--line-soft);
         transition: margin-left 0.22s ease, opacity 0.22s ease;

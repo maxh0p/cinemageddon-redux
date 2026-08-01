@@ -39,6 +39,10 @@ each page client-side — no server access, no API, nothing to install beyond th
 Updates are picked up automatically through Tampermonkey's update checks
 (`@updateURL` points at this repository).
 
+> **Note for testers on v0.24+:** the editor's *Site codes* list is cached for
+> 24 hours, so the new `[mediainfo]` entry can take up to a day to show up
+> after updating.
+
 ### Recommended Tampermonkey settings
 
 - **Early injection** — modern (MV3) Tampermonkey injects scripts late by default,
