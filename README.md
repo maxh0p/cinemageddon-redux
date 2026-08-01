@@ -134,6 +134,11 @@ stub's grants.
 
 Syntax check before reloading: `node --check cg-redux.user.js`.
 
+## Support
+
+If this script makes your CG browsing nicer and you fancy saying thanks,
+you can [buy me a coffee on Ko-fi](https://ko-fi.com/maxh0p). ☕
+
 ## License
 
 [MIT](LICENSE)
