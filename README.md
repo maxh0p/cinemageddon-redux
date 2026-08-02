@@ -39,10 +39,6 @@ each page client-side — no server access, no API, nothing to install beyond th
 Updates are picked up automatically through Tampermonkey's update checks
 (`@updateURL` points at this repository).
 
-> **Note for testers on v0.24+:** the editor's *Site codes* list is cached for
-> 24 hours, so the new `[mediainfo]` entry can take up to a day to show up
-> after updating.
-
 ### Recommended Tampermonkey settings
 
 - **Early injection** — modern (MV3) Tampermonkey injects scripts late by default,
@@ -82,7 +78,7 @@ the difference is imperceptible.
 
 Reworked: home/news, browse, torrent details, upload, requests, credits, featurama,
 upload competitions, random trailer, top ten, site stats, ranks, invites, IRC/chat,
-forums (boards, threads, compose/edit/quote), messages (inbox, sentbox, view, compose),
+forums (boards, threads, search, compose/edit/quote), messages (inbox, sentbox, view, compose),
 users, user details, friends & blocks, bookmarks, reseeds, snatches, cigars, tags, smilies, polls,
 staff, site log, helpdesk, help articles, rules, donate, login, signup, profile edit,
 and the COCKS pages (index, articles, listings, subscriptions, endoscope search).

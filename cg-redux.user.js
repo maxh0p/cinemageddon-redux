@@ -2,7 +2,7 @@
 // @name         Cinemageddon Redux
 // @namespace    cg-redux
 // @description  Modern frontend rework for cinemageddon.net, rendered from the legacy server HTML
-// @version      0.24.0
+// @version      0.25.5
 // @author       maxh0p
 // @license      MIT
 // @icon         https://cinemageddon.net/favicon.ico
@@ -41,6 +41,7 @@
     '/cocks/index.php': renderCocksIndex,
     '/cocks/': renderCocksIndex,
     '/cocks/notawiki.php': renderCocksList,
+    '/cocks/addpage.php': renderCocksAdd,
     '/login.php': renderLogin,
     '/signup.php': renderSignup,
     '/users.php': renderUsers,
@@ -617,7 +618,7 @@
     const navOpen = store.get('sidebarOpen', true);
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.24.0', class: navOpen ? null : 'nav-closed' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.25.5', class: navOpen ? null : 'nav-closed' },
       el(
         'header',
         { class: 'cgx-topbar' },
@@ -1496,6 +1497,32 @@
         )
       : null;
 
+    // Zero results: a proper card instead of a silently blank list, with a
+    // way out.
+    const clearAll = () => {
+      data.filters.forEach((f) => (f.box.checked = false));
+      if (data.searchForm) data.searchForm.elements.search.value = '';
+      (data.searchForm || data.filterForm)?.submit();
+    };
+    const emptyCard = el(
+      'section',
+      { class: 'cgx-panel' },
+      el(
+        'div',
+        { class: 'cgx-empty' },
+        radMark('big'),
+        el('h2', {}, 'No torrents found'),
+        el('p', {}, searchVal ? `Nothing matching “${searchVal}”.` : 'Nothing matches those filters.'),
+        searchVal || activeCount
+          ? el(
+              'div',
+              { class: 'cgx-empty-actions' },
+              el('button', { class: 'cgx-btn ghost', type: 'button', onclick: clearAll }, 'Clear search & filters')
+            )
+          : null
+      )
+    );
+
     const content = el(
       'div',
       {},
@@ -1508,7 +1535,7 @@
       filmId ? buildFilmHero(filmId) : null,
       data.featured.length ? buildFeaturedSection(data) : null,
       sortBar,
-      el('section', { class: 'cgx-list' }, data.torrents.map((t) => makeCard(t))),
+      data.torrents.length ? el('section', { class: 'cgx-list' }, data.torrents.map((t) => makeCard(t))) : emptyCard,
       data.pages.length
         ? el(
             'nav',
@@ -3107,7 +3134,7 @@
 
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.24.0', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.25.5', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap' },
@@ -3157,7 +3184,7 @@
 
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.24.0', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.25.5', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap wide' },
@@ -3203,7 +3230,7 @@
     }
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.24.0', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.25.5', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap' },
@@ -3253,8 +3280,14 @@
       .map((x) => +txt(x))[0];
     const chip = (label, href) => el('a', { class: 'cgx-page', href }, label);
     const items = [];
+    // First/Last bookends: the current page is never a link in nums, so these
+    // hide themselves at either end of the range.
+    let firstHref = null;
+    let lastHref = null;
     if (nums.size) {
       const last = Math.max(...nums.keys(), current || 0);
+      firstHref = nums.get(1) || null;
+      lastHref = nums.get(last) || null;
       const want = new Set([1, 2, last - 1, last]);
       for (let i = (current || 0) - 2; i <= (current || 0) + 2; i++) want.add(i);
       let shown = 0;
@@ -3278,9 +3311,11 @@
     return el(
       'nav',
       { class: 'cgx-pages' },
+      firstHref ? chip('« First', firstHref) : null,
       prev ? chip('‹ Prev', prev) : null,
       items,
-      next ? chip('Next ›', next) : null
+      next ? chip('Next ›', next) : null,
+      lastHref ? chip('Last »', lastHref) : null
     );
   }
 
@@ -4351,27 +4386,73 @@
     );
   }
 
-  // cigars.php — send a cigar (credits gift).
+  // cigars.php — send a cigar (credits gift), or the ?smoke=ID result screen.
   function renderCigars(doc) {
     const form = [...doc.forms].find((f) => f.elements.receiver && f.elements.reason);
-    if (!form) throw new Error('no cigar form');
-    const head = [...doc.querySelectorAll('td.colhead')].find((h) => /cigar/i.test(txt(h)));
-    const holder = head && head.closest('table');
-    const explain =
-      holder &&
-      [...holder.querySelectorAll('td')].find((c) => c !== head && !c.contains(form) && !c.querySelector('table') && txt(c).length > 40);
-    form.classList.add('cgx-repform');
+    if (!form) return cigarSmoked(doc);
+    form.classList.add('cgx-repform', 'cgx-upform');
+
+    // The intro copy shares the form's <td>; everything after "Note:" is
+    // really about the recipient field, so it moves under that input.
+    const cell = form.closest('td');
+    const cellClone = cell && cell.cloneNode(true);
+    cellClone?.querySelector('form')?.remove();
+    const [blurb, idNote] = txt(cellClone).replace(/\s+/g, ' ').trim().split(/\s*Note:\s*/);
+
+    const receiver = form.elements.receiver;
+    const credits = form.elements.value;
+    const reason = form.elements.reason;
+    const hidden = [...form.querySelectorAll('input[type="hidden"]')];
+    const submitBtn = form.querySelector('input[type="submit"]');
+    // The legacy form is label text nodes + inline inputs — nothing worth
+    // keeping in place, so rebuild it wholesale around the live controls.
+    while (form.firstChild) form.firstChild.remove();
+
+    const field = (label, control, note) =>
+      el('div', { class: 'cgx-upfield' }, el('label', {}, label), control, note ? el('div', { class: 'cgx-upnote' }, note) : null);
+    form.append(
+      ...hidden,
+      el(
+        'div',
+        { class: 'cgx-upgrid cols3' },
+        field('Recipient user ID', receiver, idNote || null),
+        field('Credits to send', credits),
+        field('Reason (optional)', reason)
+      ),
+      el('div', { class: 'cgx-upfoot' }, submitBtn)
+    );
+
     renderShell(
       doc,
       el(
         'div',
         {},
+        el('div', { class: 'cgx-panel-head cgx-forums-top' }, el('h2', { class: 'cgx-page-title' }, '🚬 Send a cigar')),
+        el('section', { class: 'cgx-panel' }, blurb ? el('p', { class: 'cgx-hint' }, blurb) : null, form)
+      )
+    );
+  }
+
+  // The smoke-result screens keep the site's own copy — "Mmm... carcinogenic."
+  // with the credits line on success, an all-caps telling-off on a resmoke.
+  // Both are just an h2 + a one-liner in td.embedded.
+  function cigarSmoked(doc) {
+    const box = doc.querySelector('td.embedded');
+    const title = box && txt(box.querySelector('h2'));
+    const msg = box && txt(box.querySelector('td.text') || box.querySelector('td'));
+    if (!title && !msg) throw new Error('no cigar form or result');
+    renderShell(
+      doc,
+      el(
+        'section',
+        { class: 'cgx-panel' },
         el(
-          'section',
-          { class: 'cgx-panel' },
-          el('h3', {}, '🚬 Send a cigar'),
-          explain ? el('p', { class: 'cgx-hint' }, txt(explain)) : null,
-          form
+          'div',
+          { class: 'cgx-empty' },
+          el('div', { class: 'cgx-bigmoji' }, '🚬'),
+          el('h2', {}, title || 'Cigars'),
+          msg ? el('p', {}, msg) : null,
+          el('button', { class: 'cgx-btn ghost cgx-empty-back', type: 'button', onclick: () => history.back() }, '← Back')
         )
       )
     );
@@ -4704,6 +4785,7 @@
     if (action === 'viewforum') return forumsForum(doc);
     if (action === 'viewtopic') return forumsTopic(doc);
     if (action === 'viewunread') return forumsUnread(doc);
+    if (action === 'search') return forumsSearch(doc);
     if (['reply', 'newtopic', 'edit', 'quotepost', 'editpost'].includes(action)) return forumsCompose(doc);
     throw new Error('unhandled forums action: ' + action);
   }
@@ -4721,10 +4803,10 @@
     const search = link(/(?:^|\?|&)action=search/i);
     const unread = link(/(?:^|\?|&)action=viewunread/i);
     const catchup = link(/(?:\?|&)catchup/i);
-    const onUnread = new URLSearchParams(location.search).get('action') === 'viewunread';
+    const here = new URLSearchParams(location.search).get('action');
     return [
-      search ? el('a', { class: 'cgx-btn ghost', href: search.href }, 'Search') : null,
-      unread && !onUnread
+      search && here !== 'search' ? el('a', { class: 'cgx-btn ghost', href: search.href }, 'Search') : null,
+      unread && here !== 'viewunread'
         ? el('a', { class: 'cgx-btn ghost', href: unread.href, title: 'All topics with unread posts, across every forum' }, 'View unread')
         : null,
       catchup
@@ -4889,7 +4971,9 @@
           .filter(Boolean)
       : [];
 
-    const pager = t ? pagerNavExcluding(doc, t) : null;
+    // Two calls, not one reused node — each renders its own chips (top and
+    // bottom of the listing, like legacy).
+    const pager = () => (t ? pagerNavExcluding(doc, t) : null);
 
     renderShell(
       doc,
@@ -4902,6 +4986,7 @@
           el('h2', { class: 'cgx-page-title' }, el('a', { href: '/forums.php' }, 'Forums'), ' › ', heading),
           newTopic ? el('a', { class: 'cgx-btn primary', href: newTopic.href }, '+ New topic') : null
         ),
+        pager(),
         el(
           'section',
           { class: 'cgx-panel' },
@@ -4955,7 +5040,7 @@
             )
           )
         ),
-        pager
+        pager()
       )
     );
   }
@@ -5031,6 +5116,109 @@
             : el('div', { class: 'cgx-empty' }, radMark('big'), el('h2', {}, 'All caught up'), el('p', {}, 'No unread posts anywhere. Go touch grass.')),
           note ? el('p', { class: 'cgx-hint' }, note) : null
         )
+      )
+    );
+  }
+
+  // ?action=search — keyword search across every forum post. Results come
+  // back as Post | Topic | Forum | Posted by rows whose topic links land on
+  // the matching post, 48 per page.
+  function forumsSearch(doc) {
+    const keywords = new URLSearchParams(location.search).get('keywords') || '';
+
+    const form = [...doc.forms].find((f) => f.elements.namedItem('keywords'));
+    let searchBar = null;
+    if (form) {
+      const legacyQ = form.elements.namedItem('keywords');
+      const q = el('input', { class: 'cgx-search', type: 'search', placeholder: 'Search forum posts…', value: legacyQ.value || keywords });
+      const go = () => {
+        legacyQ.value = q.value;
+        form.submit();
+      };
+      q.addEventListener('keydown', (e) => e.key === 'Enter' && go());
+      searchBar = el('div', { class: 'cgx-toolbar' }, q, el('button', { class: 'cgx-btn primary', type: 'button', onclick: go }, 'Search'));
+    }
+    // The legacy caveat ("common words and words with less than N characters
+    // are ignored") — kept because N comes from the server, not us.
+    // Shortest matching cell = the description cell itself, not an ancestor
+    // that also contains the heading and labels.
+    const hint = (
+      [...doc.querySelectorAll('td')]
+        .map((c) => txt(c))
+        .filter((s) => /common words/i.test(s))
+        .sort((a, b) => a.length - b.length)[0] || ''
+    ).replace(/\.(?=\S)/g, '. ');
+
+    const t = [...doc.querySelectorAll('table')].find((x) => x.rows.length > 1 && /^Post\s*Topic\s*Forum/i.test(txt(x.rows[0])));
+    const results = t
+      ? [...t.rows]
+          .slice(1)
+          .map((r) => {
+            const c = r.cells;
+            const topicA = c[1] && c[1].querySelector('a');
+            if (!topicA || c.length < 4) return null;
+            return {
+              title: txt(topicA),
+              href: topicA.href,
+              forumA: c[2].querySelector('a'),
+              userA: c[3].querySelector('a[href*="userdetails"]'),
+              date: (txt(c[3]).match(/[\d-]+\s[\d:]+/) || [])[0] || '',
+            };
+          })
+          .filter(Boolean)
+      : [];
+    const found = (txt(doc.body).match(/Found\s+([\d,]+)\s+posts/i) || [])[1];
+    const pager = () => (t ? pagerNavExcluding(doc, t) : pagerNav(doc));
+
+    renderShell(
+      doc,
+      el(
+        'div',
+        {},
+        el(
+          'div',
+          { class: 'cgx-panel-head cgx-forums-top' },
+          el(
+            'h2',
+            { class: 'cgx-page-title' },
+            el('a', { href: '/forums.php' }, 'Forums'),
+            ' › Search',
+            found ? el('span', { class: 'cgx-board-note' }, `${found} posts`) : null
+          ),
+          el('div', { class: 'cgx-forums-actions' }, forumActionLinks(doc))
+        ),
+        el('section', { class: 'cgx-panel' }, searchBar, hint && !results.length ? el('p', { class: 'cgx-hint' }, hint) : null),
+        results.length
+          ? el(
+              'div',
+              {},
+              pager(),
+              el(
+                'section',
+                { class: 'cgx-panel' },
+                results.map((r) =>
+                  el(
+                    'div',
+                    { class: 'cgx-topic-row' },
+                    el(
+                      'div',
+                      { class: 'cgx-topic-main' },
+                      el('div', {}, el('a', { class: 'cgx-topic-title', href: r.href }, r.title)),
+                      el('div', { class: 'sub' }, r.userA ? ['by ', userLink(r.userA), r.date ? ' · ' : null] : null, r.date || null)
+                    ),
+                    r.forumA ? el('a', { class: 'cgx-chip', href: r.forumA.href }, txt(r.forumA)) : null
+                  )
+                )
+              ),
+              pager()
+            )
+          : keywords
+            ? el(
+                'section',
+                { class: 'cgx-panel' },
+                el('div', { class: 'cgx-empty' }, radMark('big'), el('h2', {}, 'Nothing found'), el('p', {}, `No posts matching “${keywords}”.`))
+              )
+            : null
       )
     );
   }
@@ -5331,7 +5519,12 @@
     }
     return out;
   }
-  const loadBbTags = (cb) => cachedList('bbtags', helpUrl('tags', '/tags.php'), parseBbTags, cb);
+  // Key is versioned: v0.24.0 added [mediainfo] to the parse, but everyone's
+  // 24h cache still held the old list — renaming the key refetches at once.
+  const loadBbTags = (cb) => cachedList('bbtags2', helpUrl('tags', '/tags.php'), parseBbTags, cb);
+  try {
+    localStorage.removeItem('cgx:cache:bbtags');
+  } catch {}
 
   /* --- BBCode → HTML, for the preview panel --- */
 
@@ -5733,6 +5926,9 @@
         'div',
         {},
         el('div', { class: 'cgx-panel-head cgx-forums-top' }, crumb, el('div', { class: 'cgx-forums-actions' }, hiddenUsersMenu(), buttons)),
+        // Pager top and bottom, like legacy — on long threads you shouldn't
+        // have to scroll past 25 posts to change page.
+        pagerNav(doc),
         posts.map(forumPostCard),
         pagerNav(doc),
         replyForm
@@ -5917,6 +6113,59 @@
         catTables[0] ? el('section', { class: 'cgx-panel' }, el('h3', {}, 'Page categories'), cardGrid(catTables[0])) : null,
         catTables[1] ? el('section', { class: 'cgx-panel' }, el('h3', {}, 'Possibly of interest'), cardGrid(catTables[1])) : null,
         createRow ? el('section', { class: 'cgx-panel' }, el('h3', {}, 'Create a new page'), createRow) : null
+      )
+    );
+  }
+
+  /* cocks/addpage.php — the step-1 "Create New Fanpage/Guide/Review" forms the
+     index dropdown POSTs to. A plain GET of the URL answers "No" (no form),
+     which throws here and falls back to legacy. */
+
+  function renderCocksAdd(doc) {
+    const form = [...doc.forms].find((f) => f.elements.title && (f.getAttribute('action') || '').includes('addpage'));
+    if (!form) throw new Error('no addpage form');
+    form.classList.add('cgx-repform', 'cgx-upform', 'cgx-addpage');
+
+    const heading =
+      [...doc.querySelectorAll('h1, h2, h3')].map((h) => txt(h).trim()).find((s) => /create new/i.test(s)) || 'Create a new page';
+
+    // Pair each bare label text node with the text input that follows it, so
+    // the three variants (fanpage: title + description, guide: title alone,
+    // review: title + IMDb) all come out right without hardcoding.
+    const fields = [];
+    let pendingLabel = '';
+    const walk = (n) => {
+      for (const c of [...n.childNodes]) {
+        if (c.nodeType === 3 && c.textContent.trim()) pendingLabel = c.textContent.trim().replace(/:$/, '');
+        else if (c.nodeType === 1 && c.tagName === 'INPUT' && c.type === 'text') {
+          fields.push({ label: pendingLabel || c.name, input: c });
+          pendingLabel = '';
+        } else if (c.nodeType === 1 && !/^(INPUT|SELECT|TEXTAREA)$/.test(c.tagName)) walk(c);
+      }
+    };
+    walk(form);
+
+    const hidden = [...form.querySelectorAll('input[type="hidden"]')];
+    const submitBtn = form.querySelector('input[type="submit"]');
+    while (form.firstChild) form.firstChild.remove();
+    form.append(
+      ...hidden,
+      el(
+        'div',
+        { class: 'cgx-upgrid' },
+        fields.map((f) => el('div', { class: 'cgx-upfield full' }, el('label', {}, f.label), f.input))
+      ),
+      el('div', { class: 'cgx-upfoot' }, submitBtn)
+    );
+
+    renderShell(
+      doc,
+      el(
+        'div',
+        {},
+        cocksNavChips(doc.querySelector('td.outer') || doc.body),
+        el('div', { class: 'cgx-panel-head cgx-forums-top' }, el('h2', { class: 'cgx-page-title' }, heading)),
+        el('section', { class: 'cgx-panel' }, form)
       )
     );
   }
@@ -6787,6 +7036,9 @@
       .cgx-empty .cgx-rad svg { width: 44px; height: 44px; }
       .cgx-empty h2 { margin: 14px 0 6px; font-size: 20px; }
       .cgx-empty p { color: var(--muted); margin: 0; }
+      .cgx-empty .cgx-bigmoji { font-size: 42px; line-height: 1; }
+      .cgx-empty .cgx-empty-back { margin-top: 18px; }
+      .cgx-empty-actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
       .cgx-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
       .cgx-hint { color: var(--muted); font-size: 13px; margin: 4px 0 14px; }
 
@@ -6980,6 +7232,7 @@
       .cgx-upform textarea[name="descr"] { min-height: 280px; }
       .cgx-upform textarea[name="mediainfo"] { min-height: 140px; }
       .cgx-upfoot { margin: 4px 0 24px; }
+      .cgx-addpage .cgx-upfoot { margin: 20px 0 4px; }
       .cgx-upfoot input[type="submit"] { padding: 11px 30px; font-size: 15px; }
       /* profile edit (shares the cgx-up* kit) */
       /* Radio groups keep their legacy inline flow — the option labels are
