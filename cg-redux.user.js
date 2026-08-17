@@ -2,7 +2,7 @@
 // @name         Cinemageddon Redux
 // @namespace    cg-redux
 // @description  Modern frontend rework for cinemageddon.net, rendered from the legacy server HTML
-// @version      0.25.6
+// @version      1.0.0
 // @author       maxh0p
 // @license      MIT
 // @icon         https://cinemageddon.net/favicon.ico
@@ -13,6 +13,7 @@
 // @match        https://cinemageddon.net/*
 // @run-at       document-start
 // @grant        GM_xmlhttpRequest
+// @grant        GM_registerMenuCommand
 // @connect      v3.sg.media-imdb.com
 // @connect      letterboxd.com
 // ==/UserScript==
@@ -600,6 +601,62 @@
     return menu;
   }
 
+  // Feature toggles live in a modal rather than a dropdown — they need room
+  // for their explanations. Same store-and-reload model as the theme picker:
+  // the gated features render inline all over the tree, so a reload is the
+  // only honest "apply". Saving happens on close, once, so flipping several
+  // switches doesn't reload between each.
+  function openSettings() {
+    if (document.querySelector('.cgx-settings')) return;
+    const boxes = {};
+    const rows = SETTING_DEFS.map((d) => {
+      const box = el('input', { type: 'checkbox' });
+      box.checked = !!SETTINGS[d.key];
+      boxes[d.key] = box;
+      return el(
+        'label',
+        { class: 'cgx-set-row' },
+        el('span', { class: 'cgx-set-text' }, el('span', { class: 'name' }, d.label), el('span', { class: 'hint' }, d.hint)),
+        el('span', { class: 'cgx-switch' }, box, el('span', { class: 'knob' }))
+      );
+    });
+    const onKey = (e) => e.key === 'Escape' && close();
+    const close = () => {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+      const next = Object.fromEntries(SETTING_DEFS.map((d) => [d.key, boxes[d.key].checked]));
+      if (SETTING_DEFS.some((d) => next[d.key] !== !!SETTINGS[d.key])) {
+        store.set('settings', next);
+        location.reload();
+      }
+    };
+    const overlay = el(
+      'div',
+      {
+        class: 'cgx-modal cgx-settings',
+        onclick: (e) => {
+          if (e.target === overlay) close();
+        },
+      },
+      el(
+        'div',
+        { class: 'cgx-set-panel' },
+        el('h2', {}, 'Redux settings'),
+        rows,
+        el(
+          'div',
+          { class: 'cgx-set-foot' },
+          el('span', { class: 'hint' }, 'Changes apply on reload.'),
+          el('button', { class: 'cgx-btn', type: 'button', onclick: close }, 'Done')
+        )
+      )
+    );
+    document.addEventListener('keydown', onKey);
+    document.getElementById('cg-redux-root')?.appendChild(overlay);
+  }
+
+  const settingsGear = () => el('button', { class: 'cgx-stat cgx-gear', type: 'button', title: 'Redux settings', onclick: openSettings }, '⚙');
+
   // The topbar wraps to a second row on narrow windows; the sidebar's sticky
   // offset and max-height are derived from its real height rather than a
   // guess, so nothing ends up parked below the fold.
@@ -618,7 +675,7 @@
     const navOpen = store.get('sidebarOpen', true);
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.25.6', class: navOpen ? null : 'nav-closed' },
+      { id: 'cg-redux-root', 'data-cgx-version': '1.0.0', class: navOpen ? null : 'nav-closed' },
       el(
         'header',
         { class: 'cgx-topbar' },
@@ -693,13 +750,14 @@
                       Number(user.pmNew) > 0 ? el('span', { class: 'cgx-pm-badge' }, user.pmNew + ' new') : null
                     )
                   : null,
-                // Scheme picker sits with the pills; logout stays the last item.
+                // Settings + scheme picker sit with the pills; logout stays the last item.
+                settingsGear(),
                 themeMenu(),
                 el('a', { href: user.logoutHref, class: 'cgx-logout' }, 'logout'),
               ],
-          // The picker belongs to the reader, not the session, so logged-out
-          // pages (login/welcome) still get one.
-          user ? null : themeMenu()
+          // The pickers belong to the reader, not the session, so logged-out
+          // pages (login/welcome) still get them.
+          user ? null : [settingsGear(), themeMenu()]
         )
       ),
       el('div', { class: 'cgx-body' }, buildSidebar(doc), el('main', { class: 'cgx-main' }, pageContent))
@@ -707,6 +765,9 @@
 
     injectStyles();
     doc.body.appendChild(root);
+    // Same settings window from the Tampermonkey menu. Optional grant: absent
+    // (e.g. under a dev-loader stub without it) the topbar gear still works.
+    if (typeof GM_registerMenuCommand === 'function') GM_registerMenuCommand('Settings', openSettings);
     armTopbarHeight(root, root.querySelector('.cgx-topbar'));
     armImageSpinners(root);
     armImgurProxy(root);
@@ -736,6 +797,7 @@
   // Germany (the useful core of the imgur_unblock_via_imgup_uk extension —
   // its toggle/stats/declarativeNetRequest plumbing isn't needed here).
   function imgurProxyUrl(url) {
+    if (!SETTINGS.imgurRelay) return url;
     if (!url || url.includes('imgup.uk') || !/(^|\/\/)i\.imgur\.com\//i.test(url)) return url;
     const abs = url.replace(/^\/\//, 'https://').replace(/^http:\/\//i, 'https://');
     return 'https://imgup.uk/proxy/?url=' + encodeURIComponent(abs);
@@ -864,7 +926,7 @@
         t.download ? el('a', { class: 'cgx-btn icon', href: t.download, title: 'Download .torrent' }, '⬇') : null,
         bookmarkButton(t),
         t.imdb ? el('a', { class: 'cgx-btn icon ghost', href: t.imdb, title: 'Open on IMDB', target: '_blank' }, 'IMDB') : null,
-        t.letterboxd
+        t.letterboxd && SETTINGS.btnLetterboxd
           ? el(
               'a',
               { class: 'cgx-btn icon ghost lb', href: t.letterboxd, title: 'Open on Letterboxd', target: '_blank' },
@@ -935,8 +997,9 @@
   // Native port of the features from https://greasyfork.org/en/scripts/448674-cg-mod-tool
   // (IMDb titler, mark new uploads, duplicate-IMDB-ID check). Disable CG Mod Tool itself
   // when running this script, or both will fetch in the background.
+  // The titler moved to SETTINGS (user-toggleable, off by default).
 
-  const FEATURES = { imdbTitler: false, markNewUploads: true, dupeCheck: true };
+  const FEATURES = { markNewUploads: true, dupeCheck: true };
 
   const store = {
     get(key, fallback) {
@@ -953,6 +1016,29 @@
       } catch {}
     },
   };
+
+  // User-facing feature toggles, edited in the settings window (gear in the
+  // topbar / Tampermonkey menu entry). Stored as one object merged over the
+  // defaults, so a toggle added in a later version starts at its default on
+  // existing installs instead of being lost.
+  const SETTING_DEFS = [
+    { key: 'btnLetterboxd', def: true, label: 'Letterboxd buttons', hint: 'On the torrent page and browse cards' },
+    { key: 'btnStremio', def: true, label: 'Stremio button', hint: 'Opens the film in the Stremio app' },
+    { key: 'btnDmm', def: true, label: 'DMM button', hint: 'Searches Debrid Media Manager for the film' },
+    {
+      key: 'imgurRelay',
+      def: true,
+      label: 'imgur unblocker',
+      hint: 'Loads i.imgur.com images via the imgup.uk relay — for ISPs that block imgur',
+    },
+    {
+      key: 'imdbTitler',
+      def: false,
+      label: 'IMDB titles on browse',
+      hint: 'Fetches each film’s IMDB title under the card title (one background request per new film)',
+    },
+  ];
+  const SETTINGS = Object.assign(Object.fromEntries(SETTING_DEFS.map((d) => [d.key, d.def])), store.get('settings', {}));
 
   function isFirstBrowsePage() {
     const params = new URLSearchParams(location.search);
@@ -1171,11 +1257,17 @@
             { class: 'cgx-hero-links' },
             ctx?.download || null,
             el('a', { class: 'cgx-btn ghost', href: `https://www.imdb.com/title/${imdbId}/`, target: '_blank' }, 'IMDB'),
-            el('a', { class: 'cgx-btn ghost', href: info.url || `https://letterboxd.com/imdb/${imdbId}/`, target: '_blank' }, 'Letterboxd'),
+            SETTINGS.btnLetterboxd
+              ? el('a', { class: 'cgx-btn ghost', href: info.url || `https://letterboxd.com/imdb/${imdbId}/`, target: '_blank' }, 'Letterboxd')
+              : null,
             // The useful cores of the "IMDb to Stremio" and "Debrid Media
             // Manager" userscripts — each is just a URL keyed on the IMDb id.
-            el('a', { class: 'cgx-btn ghost', href: `stremio:///detail/movie/${imdbId}`, title: 'Open in the Stremio app' }, 'Stremio'),
-            el('a', { class: 'cgx-btn ghost', href: `https://x.debridmediamanager.com/${imdbId}`, target: '_blank', title: 'Search on Debrid Media Manager' }, 'DMM')
+            SETTINGS.btnStremio
+              ? el('a', { class: 'cgx-btn ghost', href: `stremio:///detail/movie/${imdbId}`, title: 'Open in the Stremio app' }, 'Stremio')
+              : null,
+            SETTINGS.btnDmm
+              ? el('a', { class: 'cgx-btn ghost', href: `https://x.debridmediamanager.com/${imdbId}`, target: '_blank', title: 'Search on Debrid Media Manager' }, 'DMM')
+              : null
           )
         )
       )
@@ -1237,7 +1329,7 @@
       if (max > last) store.set('lastUpload', max);
     }
 
-    if (FEATURES.imdbTitler) {
+    if (SETTINGS.imdbTitler) {
       let delay = 0;
       for (const { t, card } of cardRefs) {
         if (!t.imdbId) continue;
@@ -3135,7 +3227,7 @@
 
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.25.6', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '1.0.0', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap' },
@@ -3185,7 +3277,7 @@
 
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.25.6', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '1.0.0', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap wide' },
@@ -3231,7 +3323,7 @@
     }
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.25.6', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '1.0.0', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap' },
@@ -6774,6 +6866,37 @@
       .cgx-theme-opt:hover { background: var(--hover); }
       .cgx-theme-opt.on { color: var(--accent); font-weight: 600; }
       .cgx-theme-opt .sw { width: 14px; height: 14px; border-radius: 50%; border: 2px solid; flex: none; }
+
+      /* Settings gear: a .cgx-stat pill that happens to be a <button>, glyph
+         pinned to the pills' 18px line box like the theme picker's ◐ */
+      .cgx-gear { cursor: pointer; font: inherit; font-size: 14px; line-height: 18px; }
+      .cgx-gear:hover { color: var(--text) !important; border-color: var(--accent); }
+      .cgx-settings { cursor: default; }
+      .cgx-set-panel {
+        width: min(460px, 92vw); background: var(--panel); border: 1px solid var(--line-strong);
+        border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 20px 24px;
+      }
+      .cgx-set-panel h2 { margin: 0 0 8px; font-size: 17px; }
+      .cgx-set-row {
+        display: flex; align-items: center; justify-content: space-between; gap: 18px;
+        padding: 11px 0; border-top: 1px solid var(--line-soft); cursor: pointer;
+      }
+      .cgx-set-text .name { display: block; font-weight: 600; font-size: 13.5px; }
+      .cgx-set-text .hint, .cgx-set-foot .hint { display: block; color: var(--muted); font-size: 12px; }
+      .cgx-switch { position: relative; flex: none; width: 34px; height: 20px; }
+      .cgx-switch input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+      .cgx-switch .knob {
+        display: block; width: 100%; height: 100%; border-radius: 999px;
+        background: var(--panel-2); border: 1px solid var(--line-strong);
+        transition: background 0.15s ease; pointer-events: none;
+      }
+      .cgx-switch .knob::after {
+        content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px;
+        border-radius: 50%; background: var(--muted); transition: transform 0.15s ease, background 0.15s ease;
+      }
+      .cgx-switch input:checked + .knob { background: var(--accent); border-color: var(--accent); }
+      .cgx-switch input:checked + .knob::after { transform: translateX(14px); background: var(--on-accent); }
+      .cgx-set-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
 
       /* flex:1 + min-width:0 keeps the column at full available width regardless
          of content, so opening/closing wide sections can't reflow the layout;

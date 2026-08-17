@@ -11,6 +11,8 @@ each page client-side — no server access, no API, nothing to install beyond th
 ## Features
 
 - Two colour schemes — **Warm** (brown dark) and **Cold** (neutral graphite) — switchable from the top bar
+- Settings window (gear in the top bar, or the Tampermonkey menu) to toggle the
+  Letterboxd/Stremio/DMM buttons, the imgur relay, and IMDB titles on browse cards
 - Sticky top bar (ratio, buffer, credits, PMs) and a scrollable sidebar that keeps the current page in view
 - Browse as rich cards: covers, tags, seeder/leecher/snatch counts, featured shelf, sort chips
 - Torrent details hero card with poster zoom, director/cast (fetched from IMDB), one-click **IMDB / Letterboxd / Stremio / DMM** buttons, and an inline comment box
@@ -89,7 +91,6 @@ covered page falls back to the legacy page rather than a broken one.
 ## To do
 
 - [ ] Get listed on Greasy Fork — or package as a dedicated browser extension
-- [ ] Config/settings panel (toggle features like the imgur relay, external-link behaviour, background fetches)
 
 ## Privacy / external requests
 
@@ -97,6 +98,7 @@ covered page falls back to the legacy page rather than a broken one.
   links are resolved against letterboxd.com. Both are declared with `@connect`.
 - `i.imgur.com` images are rewritten to the `imgup.uk` relay (imgur is blocked by
   several UK ISPs). The relay states a limit of ~30 requests/hour/IP.
+  Can be turned off in the settings window if your ISP doesn't block imgur.
 - Nothing else leaves your browser; there is no analytics or telemetry of any kind.
 
 ## Development
@@ -112,6 +114,7 @@ Work against a local checkout with a dev-loader stub so edits apply on plain pag
 // @run-at       document-start
 // @require      file:///path/to/your/checkout/cg-redux.user.js
 // @grant        GM_xmlhttpRequest
+// @grant        GM_registerMenuCommand
 // @connect      v3.sg.media-imdb.com
 // @connect      letterboxd.com
 // ==/UserScript==
