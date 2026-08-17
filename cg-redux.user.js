@@ -2,7 +2,7 @@
 // @name         Cinemageddon Redux
 // @namespace    cg-redux
 // @description  Modern frontend rework for cinemageddon.net, rendered from the legacy server HTML
-// @version      0.25.5
+// @version      0.25.6
 // @author       maxh0p
 // @license      MIT
 // @icon         https://cinemageddon.net/favicon.ico
@@ -618,7 +618,7 @@
     const navOpen = store.get('sidebarOpen', true);
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.25.5', class: navOpen ? null : 'nav-closed' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.25.6', class: navOpen ? null : 'nav-closed' },
       el(
         'header',
         { class: 'cgx-topbar' },
@@ -2396,7 +2396,8 @@
             new URLSearchParams(location.search).has('page') ? 'force' : false
           )
         : null,
-      commentComposerPanel(doc)
+      commentComposerPanel(doc),
+      threadJump()
     );
     renderShell(doc, content);
   }
@@ -3134,7 +3135,7 @@
 
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.25.5', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.25.6', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap' },
@@ -3184,7 +3185,7 @@
 
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.25.5', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.25.6', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap wide' },
@@ -3230,7 +3231,7 @@
     }
     const root = el(
       'div',
-      { id: 'cg-redux-root', 'data-cgx-version': '0.25.5', class: 'cgx-login-page' },
+      { id: 'cg-redux-root', 'data-cgx-version': '0.25.6', class: 'cgx-login-page' },
       el(
         'div',
         { class: 'cgx-login-wrap' },
