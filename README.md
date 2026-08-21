@@ -11,18 +11,19 @@ each page client-side — no server access, no API, nothing to install beyond th
 ## Features
 
 - Two colour schemes — **Warm** (brown dark) and **Cold** (neutral graphite) — switchable from the top bar
-- Settings window (gear in the top bar, or the Tampermonkey menu) to toggle the
-  Letterboxd/Stremio/DMM buttons, the imgur relay, and IMDB titles on browse cards
+- Settings window, opened from the gear in the top bar or the Tampermonkey menu —
+  anything marked ⚙ below can be turned on/off there
 - Sticky top bar (ratio, buffer, credits, PMs) and a scrollable sidebar that keeps the current page in view
-- Browse as rich cards: covers, tags, seeder/leecher/snatch counts, featured shelf, sort chips
-- Torrent details hero card with poster zoom, director/cast (fetched from IMDB), one-click **IMDB / Letterboxd / Stremio / DMM** buttons, and an inline comment box
+- Browse as rich cards: covers, tags, seeder/leecher/snatch counts, featured shelf, sort chips,
+  and optional IMDB titles under each card title ⚙
+- Torrent details hero card with poster zoom, director/cast (fetched from IMDB), a one-click **IMDB** button plus **Letterboxd / Stremio / DMM** buttons ⚙, and an inline comment box
 - Forums, PMs, and comments restyled with proper post cards, quote/edit buttons, and BBCode rendering (including working `[hide]` spoilers)
 - Every post box gets the same editor: BBCode toolbar, smilie picker, this site's own BBCodes (read live from `tags.php`), and an expandable live preview
 - Collapsible panels remember whether you left them open
 - Modernised forms: upload, profile edit, signup, PM compose, request pages
 - User profiles as info-tile cards with country flag, action buttons, collapsible cigar shelves, and full-width BBCode Info section
 - Friends/blocks as user cards, top-ten medals, site stats with clean bar charts, COCKS pages, helpdesk, site log, and ~45 routes in total
-- imgur images un-blocked for UK ISPs via the [imgup.uk](https://imgup.uk) relay
+- imgur images un-blocked for UK ISPs via the [imgup.uk](https://imgup.uk) relay ⚙
 - External links open in new tabs; poster/screenshot images get a click-to-zoom modal
 - Fails safe: if a page's markup can't be parsed (or isn't covered), the original legacy page is shown untouched
 
