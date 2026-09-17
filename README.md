@@ -40,7 +40,9 @@ each page client-side — no server access, no API, nothing to install beyond th
    Tampermonkey will open its install screen — confirm, then reload cinemageddon.net.
 
 Updates are picked up automatically through Tampermonkey's update checks
-(`@updateURL` points at this repository).
+(`@updateURL` points at this repository). To update sooner, open the settings
+window and press **Check for updates**. If a newer version is on GitHub you get
+an **Install** button that opens Tampermonkey's update screen.
 
 ### Recommended Tampermonkey settings
 
