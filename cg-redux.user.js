@@ -2,7 +2,7 @@
 // @name         Cinemageddon Redux
 // @namespace    cg-redux
 // @description  Modern frontend rework for cinemageddon.net, rendered from the legacy server HTML
-// @version      1.0.1
+// @version      1.0.2
 // @author       maxh0p
 // @license      MIT
 // @icon         https://cinemageddon.net/favicon.ico
@@ -129,7 +129,26 @@
       sbThumb: '#3a3e48', sbTrack: '#131418',
       tile: 'brightness(0.4) saturate(0.6)',
     },
+    halloween: {
+      label: 'Halloween',
+      season: 9,
+      decor: true,
+      scheme: 'dark',
+      bg: '#120d14', panel: '#1f1722', panel2: '#2a1f2e',
+      text: '#f1e9dc', muted: '#a8979f', faint: '#7d6c78',
+      accent: '#ff7518', accentRgb: '255, 117, 24', accent2: '#ffa04a', onAccent: '#120d14',
+      green: '#9ad94f', greenRgb: '154, 217, 79', red: '#e5484d', redRgb: '229, 72, 77',
+      lineSoft: '#2c2130', line: '#36293b', lineStrong: '#4a3850', lineHard: '#000',
+      hover: '#2f2334',
+      hair: 'rgba(255, 255, 255, 0.06)', hairStrong: 'rgba(255, 255, 255, 0.1)', wash: 'rgba(255, 255, 255, 0.025)',
+      sink: 'rgba(0, 0, 0, 0.28)', backdrop: 'rgba(10, 6, 12, 0.88)',
+      shadow: '0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 22px rgba(0, 0, 0, 0.28)',
+      shadowLg: '0 18px 44px rgba(0, 0, 0, 0.65)',
+      sbThumb: '#4a3850', sbTrack: '#171019',
+      tile: 'brightness(0.35) sepia(0.5) hue-rotate(230deg) saturate(1.4)',
+    },
   };
+  const inSeason = (t) => t.season == null || new Date().getMonth() === t.season;
   const DEFAULT_THEME = 'warm';
 
   // Read straight from localStorage rather than store.get() — this runs at
@@ -139,7 +158,7 @@
       const v = JSON.parse(localStorage.getItem('cgx:theme'));
       if (v === 'classic') return 'warm'; // short-lived 0.23.x keys
       if (v === 'modern') return 'cold';
-      if (v && THEMES[v]) return v;
+      if (v && THEMES[v] && inSeason(THEMES[v])) return v;
     } catch {}
     return DEFAULT_THEME;
   }
@@ -256,7 +275,7 @@
 
     // Bonus torrents carry a spinning-coin gif (pic/golden3.gif, golden4.gif, …)
     // whose alt/title holds the amount, e.g. "40% bonus".
-    const bonusImg = c[1].querySelector('img[src*="golden"]');
+    const bonusImg = c[1].querySelector('img[src*="golden"], img[src*="halloween"]');
     const bonus = bonusImg
       ? (bonusImg.getAttribute('alt') || bonusImg.getAttribute('title') || '').trim() || 'bonus'
       : null;
@@ -269,6 +288,7 @@
       id: Number((detailsLink.getAttribute('href').match(/id=(\d+)/) || [])[1] || 0),
       snatchedByUser: tr.classList.contains('torrenttable_usersnatched'),
       bonus,
+      halloween: /halloween/i.test(bonusImg?.getAttribute('src') || ''),
       title: tagMatch ? tagMatch[1] : raw,
       tags,
       subtitle: txt(sub),
@@ -280,7 +300,7 @@
       bookmark: bookmarkLink?.href,
       bookmarkEl: bookmarkLink,
       bookmarked: /remove|del/i.test(
-        (bookmarkLink?.querySelector('img')?.alt || '') + (bookmarkLink?.getAttribute('href') || '')
+        (bookmarkLink?.querySelector('img')?.getAttribute('src') || '') + (bookmarkLink?.getAttribute('href') || '')
       ),
       cgSearch: c[1].querySelector('a[href*="browse.php?search="]')?.href,
       forumSearch: c[1].querySelector('a[href*="forums.php"]')?.href,
@@ -605,7 +625,7 @@
       el(
         'div',
         { class: 'cgx-theme-list' },
-        Object.entries(THEMES).map(([key, t]) =>
+        Object.entries(THEMES).filter(([, t]) => inSeason(t)).map(([key, t]) =>
           el(
             'button',
             {
@@ -827,6 +847,7 @@
       el('div', { class: 'cgx-body' }, buildSidebar(doc), el('main', { class: 'cgx-main' }, pageContent))
     );
 
+    if (theme.decor) root.append(spookyLayer());
     injectStyles();
     doc.body.appendChild(root);
     // Same settings window from the Tampermonkey menu. Optional grant: absent
@@ -965,7 +986,11 @@
           { class: 'cgx-title-row' },
           el('a', { class: 'cgx-title', href: t.href }, t.title),
           t.tags.map((tag) => el('span', { class: 'cgx-tag' }, tag)),
-          t.bonus ? el('span', { class: 'cgx-bonus' }, t.bonus) : null
+          t.halloween
+            ? el('span', { class: 'cgx-halloween', title: `Halloween freeleech (${t.bonus})` }, '🎃')
+            : t.bonus
+              ? el('span', { class: 'cgx-bonus' }, t.bonus)
+              : null
         ),
         t.subtitle ? el('div', { class: 'cgx-sub' }, t.subtitle) : null,
         el(
@@ -2001,7 +2026,7 @@
 
     // Bonus torrents show the spinning coin in the heading colhead cell,
     // amount in its alt ("40% Bonus") — same marker as browse rows.
-    const coin = doc.querySelector('td.colhead img[src*="golden"]');
+    const coin = doc.querySelector('td.colhead img[src*="golden"], td.colhead img[src*="halloween"]');
     const bonus = coin
       ? ((coin.getAttribute('alt') || coin.getAttribute('title') || '').trim() || 'bonus').toLowerCase()
       : null;
@@ -5105,7 +5130,10 @@
       (x) => x.rows.length > 1 && /Topic\s*Replies\s*Views/i.test(txt(x.rows[0]))
     );
     const heading = [...doc.querySelectorAll('h1')].map((h) => txt(h)).find(Boolean) || 'Forum';
-    const newTopic = [...doc.querySelectorAll('a')].find((a) => /newtopic/i.test(a.getAttribute('href') || ''));
+    const newTopicForm = doc.querySelector('input[name="action"][value="newtopic"]')?.form;
+    const newTopic = newTopicForm
+      ? { href: '/forums.php?' + new URLSearchParams(new FormData(newTopicForm)).toString() }
+      : [...doc.querySelectorAll('a')].find((a) => /newtopic/i.test(a.getAttribute('href') || ''));
 
     const topics = t
       ? [...t.rows]
@@ -6815,7 +6843,54 @@
     );
   }
 
+  function spookyLayer() {
+    const spokes = [0, 15, 32, 48, 63, 78, 90].map((a) => (a * Math.PI) / 180);
+    const pt = (a, r) => `${(Math.cos(a) * r).toFixed(1)} ${(Math.sin(a) * r).toFixed(1)}`;
+    let d = spokes.map((a) => `M0 0L${pt(a, 200)}`).join('');
+    for (const r of [28, 58, 92, 130, 172]) {
+      d += `M${pt(spokes[0], r)}`;
+      for (let i = 1; i < spokes.length; i++) {
+        d += `Q${pt((spokes[i - 1] + spokes[i]) / 2, r * 0.86)} ${pt(spokes[i], r)}`;
+      }
+    }
+    const web = `<svg viewBox="0 0 200 200" fill="none" stroke="currentColor" stroke-width="1.1"><path d="${d}"/></svg>`;
+    const bat = `<svg viewBox="0 0 24 10"><path d="M0 6Q4 0 8 4Q10 1 12 4Q14 1 16 4Q20 0 24 6Q20 5 18 8Q16 6 14 9L12 7L10 9Q8 6 6 8Q4 5 0 6Z" fill="currentColor"/></svg>`;
+    const layer = el('div', { class: 'cgx-spooky', 'aria-hidden': 'true' });
+    layer.innerHTML = `
+      <div class="web tr">${web}</div>
+      <div class="web bl">${web}</div>
+      <div class="bat b1">${bat}</div>
+      <div class="bat b2">${bat}</div>
+      <div class="bat b3">${bat}</div>`;
+    return layer;
+  }
+
   /* --------------------------------- styles ---------------------------------- */
+
+  const SPOOKY_CSS = `
+      .cgx-brand::after { content: '🎃'; margin-left: 6px; font-size: 0.9em; }
+      .cgx-spooky { position: fixed; inset: 0; z-index: 9; pointer-events: none; overflow: hidden; }
+      .cgx-spooky .web { position: absolute; width: 190px; color: rgba(241, 233, 220, 0.16); }
+      .cgx-spooky .web.tr { top: var(--topbar-h); right: 0; transform: scaleX(-1); }
+      .cgx-spooky .web.bl { bottom: 0; left: 0; transform: scaleY(-1); width: 150px; }
+      .cgx-spooky .bat { position: absolute; left: -60px; width: 34px; color: #6e5676; opacity: 0.9; }
+      .cgx-spooky .bat svg { animation: cgx-flap 0.25s ease-in-out infinite alternate; transform-origin: center; }
+      .cgx-spooky .bat.b1 { top: 22vh; animation: cgx-fly 26s linear infinite 3s; }
+      .cgx-spooky .bat.b2 { top: 38vh; width: 24px; animation: cgx-fly 34s linear infinite 11s; }
+      .cgx-spooky .bat.b3 { top: 15vh; width: 28px; animation: cgx-fly 41s linear infinite 22s; }
+      @keyframes cgx-flap { from { transform: scaleY(1); } to { transform: scaleY(0.45); } }
+      @keyframes cgx-fly {
+        0% { transform: translate(0, 0); }
+        8% { transform: translate(35vw, -40px); }
+        16% { transform: translate(70vw, 30px); }
+        24%, 100% { transform: translate(110vw, -20px); }
+      }
+      .cgx-card:hover, .cgx-panel:hover { border-color: rgba(var(--accent-rgb), 0.35); }
+      @media (prefers-reduced-motion: reduce) {
+        .cgx-spooky .bat svg { animation: none; }
+        .cgx-spooky .bat { display: none; }
+      }
+  `;
 
   function injectStyles() {
     if (document.getElementById('cg-redux-style')) return;
@@ -7813,6 +7888,7 @@
         border: 1px solid rgba(var(--accent-rgb), 0.45); border-radius: 999px;
         padding: 1px 8px;
       }
+      .cgx-halloween { font-size: 15px; line-height: 1; }
 
       .cgx-list { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
       .cgx-card {
@@ -7876,6 +7952,7 @@
         color: var(--on-accent) !important; font-weight: 700;
       }
       .cgx-pagedots { color: var(--muted); padding: 0 2px; }
+      ${theme.decor ? SPOOKY_CSS : ''}
     `;
     document.head.appendChild(style);
   }
