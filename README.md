@@ -146,6 +146,17 @@ Syntax check before reloading: `node --check cg-redux.user.js`.
 - New topic button restored on forum boards
 - Bookmark star lights up for already bookmarked torrents on browse
 
+### 1.0.1
+
+- **Check for updates** in the settings window: compares your version with GitHub and
+  offers an Install link
+- Browse pager puts Prev/Next at either end and drops empty page chips
+- Forum replies reload the thread in place, so the script stays active after posting
+- Torrent details show the uploader and size under the filename
+- Small text sizes bumped up a step for readability
+- Cleaner featured cards and page titles (no accent borders or underlines)
+- Sidebar toggle and settings gear are now properly centred SVG icons
+
 ## Support
 
 If this script makes your CG browsing nicer and you fancy saying thanks,
