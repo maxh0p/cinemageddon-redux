@@ -132,6 +132,20 @@ stub's grants.
 
 Syntax check before reloading: `node --check cg-redux.user.js`.
 
+## Changelog
+
+### 1.0.3
+
+- Paste a full IMDB URL into the browse or sidebar search and it searches for just the
+  `tt` ID (works with www, mobile and language-prefixed links)
+
+### 1.0.2
+
+- Pumpkin badge on browse cards for Halloween freeleech torrents
+- Seasonal Halloween theme in the picker, October only, with corner spider webs and bats
+- New topic button restored on forum boards
+- Bookmark star lights up for already bookmarked torrents on browse
+
 ## Support
 
 If this script makes your CG browsing nicer and you fancy saying thanks,
