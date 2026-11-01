@@ -239,6 +239,11 @@
     return s != null && l != null ? plural(s, 'seeder') + ' · ' + plural(l, 'leecher') : smartPlurals(text);
   };
 
+  const normalizeSearch = (v) => {
+    const imdb = v.trim().match(/imdb\.com\/(?:[a-z]{2}\/)?title\/(tt\d+)/i);
+    return imdb ? imdb[1].toLowerCase() : v.trim();
+  };
+
   function el(tag, attrs = {}, ...children) {
     const node = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) {
@@ -497,6 +502,7 @@
         [...(form.elements.cat?.options || [])].map((o) => el('option', { value: o.value }, o.textContent))
       );
       const go = () => {
+        input.value = normalizeSearch(input.value);
         form.elements.search.value = input.value;
         if (form.elements.cat) form.elements.cat.value = select.value;
         form.submit();
@@ -1461,9 +1467,10 @@
     const recents = store.get('recentSearches', []);
     const submitSearch = () => {
       if (!data.searchForm) return;
-      const v = searchInput.value.trim();
+      const v = normalizeSearch(searchInput.value);
+      searchInput.value = v;
       if (v) store.set('recentSearches', [v, ...recents.filter((r) => r !== v)].slice(0, 8));
-      data.searchForm.elements.search.value = searchInput.value;
+      data.searchForm.elements.search.value = v;
       data.searchForm.submit();
     };
     searchInput.addEventListener('keydown', (e) => e.key === 'Enter' && submitSearch());
