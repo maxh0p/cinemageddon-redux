@@ -2,7 +2,7 @@
 // @name         Cinemageddon Redux
 // @namespace    cg-redux
 // @description  Modern frontend rework for cinemageddon.net, rendered from the legacy server HTML
-// @version      1.0.3
+// @version      1.0.4
 // @author       maxh0p
 // @license      MIT
 // @icon         https://cinemageddon.net/favicon.ico
@@ -21,7 +21,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.0.3';
+  const VERSION = '1.0.4';
   const SCRIPT_URL = 'https://raw.githubusercontent.com/maxh0p/cinemageddon-redux/main/cg-redux.user.js';
 
   // Pages we take over. Anything not listed renders as the legacy site.
