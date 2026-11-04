@@ -134,6 +134,13 @@ Syntax check before reloading: `node --check cg-redux.user.js`.
 
 ## Changelog
 
+### 1.0.4
+
+- Torrents with more than one IMDB ID get a collapsible film card per title, first one open,
+  each with its own IMDB, Letterboxd, Stremio and DMM buttons
+- Search by user ID: enter `user:12345` or paste a profile or `browse.php?owner=` link
+- Helpdesk preview page now shows the Submit button, so tickets can be sent with the script on
+
 ### 1.0.3
 
 - Paste a full IMDB URL into the browse or sidebar search and it searches for just the
