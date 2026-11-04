@@ -239,9 +239,22 @@
     return s != null && l != null ? plural(s, 'seeder') + ' · ' + plural(l, 'leecher') : smartPlurals(text);
   };
 
+  const SEARCH_HELP = 'Title, IMDB ID or link, or user:ID for everything a user has uploaded';
+
+  const ownerIdFromSearch = (v) =>
+    (v.trim().match(/^user:\s*(\d+)$/i) || v.match(/(?:browse\.php\?(?:.*&)?owner=|userdetails\.php\?(?:.*&)?id=)(\d+)/i) || [])[1] || null;
+
   const normalizeSearch = (v) => {
+    const ownerId = ownerIdFromSearch(v);
+    if (ownerId) return `user:${ownerId}`;
     const imdb = v.trim().match(/imdb\.com\/(?:[a-z]{2}\/)?title\/(tt\d+)/i);
     return imdb ? imdb[1].toLowerCase() : v.trim();
+  };
+
+  const goToOwnerUploads = (v) => {
+    const ownerId = ownerIdFromSearch(v);
+    if (ownerId) location.href = `/browse.php?owner=${ownerId}`;
+    return !!ownerId;
   };
 
   function el(tag, attrs = {}, ...children) {
@@ -495,7 +508,7 @@
 
     let searchBlock = null;
     if (form && form.elements.search) {
-      const input = el('input', { class: 'cgx-side-search', type: 'search', placeholder: 'Site search…' });
+      const input = el('input', { class: 'cgx-side-search', type: 'search', placeholder: 'Site search…', title: SEARCH_HELP });
       const select = el(
         'select',
         { class: 'cgx-side-select' },
@@ -503,6 +516,7 @@
       );
       const go = () => {
         input.value = normalizeSearch(input.value);
+        if (goToOwnerUploads(input.value)) return;
         form.elements.search.value = input.value;
         if (form.elements.cat) form.elements.cat.value = select.value;
         form.submit();
@@ -1310,9 +1324,6 @@
         `linear-gradient(to right, rgba(30,28,25,0.96) 0%, rgba(30,28,25,0.9) 45%, rgba(30,28,25,0.65) 100%), url("${info.backdrop}")`;
     }
 
-    // Details pages pass a torrent context ({ titleWrap, titleRow, download }):
-    // the torrent title block replaces the film title (year/rating fold into
-    // its title row) and the Download button leads the links row.
     const ctx = hero._cgxTorrent;
     const year = info.year ? el('span', { class: 'cgx-hero-year cgx-fill' }, String(info.year)) : null;
     const rating = info.rating
@@ -1320,10 +1331,7 @@
       : null;
     let head;
     if (ctx) {
-      ctx.titleRow.querySelectorAll('.cgx-fill').forEach((n) => n.remove()); // refill-safe
-      // Year comes from the torrent's own tag (rendered next to the title by
-      // renderDetails); the LB rating slots in right after it, keeping film
-      // facts by the title and away from the action pills.
+      ctx.titleRow.querySelectorAll('.cgx-fill').forEach((n) => n.remove());
       if (rating) (ctx.titleRow.querySelector('.cgx-hero-year') || ctx.titleRow.querySelector('h2')).after(rating);
       head = ctx.titleWrap;
     } else {
@@ -1355,8 +1363,6 @@
             SETTINGS.btnLetterboxd
               ? el('a', { class: 'cgx-btn ghost', href: info.url || `https://letterboxd.com/imdb/${imdbId}/`, target: '_blank' }, 'Letterboxd')
               : null,
-            // The useful cores of the "IMDb to Stremio" and "Debrid Media
-            // Manager" userscripts — each is just a URL keyed on the IMDb id.
             SETTINGS.btnStremio
               ? el('a', { class: 'cgx-btn ghost', href: `stremio:///detail/movie/${imdbId}`, title: 'Open in the Stremio app' }, 'Stremio')
               : null,
@@ -1412,6 +1418,28 @@
     return hero;
   }
 
+  function buildFilmCard(imdbId, position) {
+    const cachedLabel = store.get(imdbId, null);
+    const label = el('span', {}, cachedLabel || '');
+    const card = el(
+      'details',
+      { class: 'cgx-user-section cgx-film-card', open: position === 0 ? '' : null },
+      el(
+        'summary',
+        {},
+        label,
+        el('a', { class: 'cgx-btn ghost sm', href: `https://www.imdb.com/title/${imdbId}/`, target: '_blank', title: imdbId }, 'IMDB')
+      )
+    );
+    const fillWhenOpen = () => {
+      if (card.open && !card.querySelector('.cgx-hero')) card.append(buildFilmHero(imdbId));
+    };
+    card.addEventListener('toggle', fillWhenOpen);
+    fillWhenOpen();
+    if (!cachedLabel) setTimeout(() => fetchImdbTitle(imdbId, (text) => (label.textContent = text)), 1000 * position);
+    return card;
+  }
+
   function applyEnhancements(cardRefs) {
     if (FEATURES.markNewUploads && isFirstBrowsePage()) {
       const last = store.get('lastUpload', 0);
@@ -1462,6 +1490,7 @@
       class: 'cgx-search',
       type: 'search',
       placeholder: 'Search torrents…',
+      title: SEARCH_HELP,
       value: data.searchForm?.elements.search.value || '',
     });
     const recents = store.get('recentSearches', []);
@@ -1470,6 +1499,7 @@
       const v = normalizeSearch(searchInput.value);
       searchInput.value = v;
       if (v) store.set('recentSearches', [v, ...recents.filter((r) => r !== v)].slice(0, 8));
+      if (goToOwnerUploads(v)) return;
       data.searchForm.elements.search.value = v;
       data.searchForm.submit();
     };
@@ -2006,7 +2036,7 @@
 
   function parseDetails(doc) {
     const cells = {};
-    const labelLinks = {}; // e.g. the "[See full list]" links beside Num files / Peers
+    const labelLinks = {};
     for (const r of doc.querySelectorAll('tr')) {
       if (r.cells.length !== 2) continue;
       const label = txt(r.cells[0]).replace(/\[[^\]]*\]/g, '').trim();
@@ -2027,19 +2057,13 @@
       '';
     const tagMatch = heading.match(/^(.*?)\s*(\[.+)$/);
 
-    const imdbCell = cells['IMDB'];
-    const imdbId =
-      (((imdbCell?.querySelector('a')?.href || '') + ' ' + txt(imdbCell)).match(/tt\d+/) || [])[0] || null;
+    const imdbIds = [...new Set(cells['IMDB']?.innerHTML.match(/tt\d+/g) || [])];
 
-    // Bonus torrents show the spinning coin in the heading colhead cell,
-    // amount in its alt ("40% Bonus") — same marker as browse rows.
     const coin = doc.querySelector('td.colhead img[src*="golden"], td.colhead img[src*="halloween"]');
     const bonus = coin
       ? ((coin.getAttribute('alt') || coin.getAttribute('title') || '').trim() || 'bonus').toLowerCase()
       : null;
 
-    // Comments: each is a table holding td.comment, preceded by a `p.sub` header
-    // line — "#1569340 by Username (Class) at 2018-08-20 11:58:56 GMT".
     const comments = [...new Set([...doc.querySelectorAll('td.comment')].map((cell) => cell.closest('table')))]
       .filter(Boolean)
       .map((table) => {
@@ -2054,21 +2078,16 @@
           userHref: userA?.href,
           klass: (subText.match(/\(([^)]+)\)/) || [])[1] || '',
           date: (subText.match(/at\s+(.+?GMT)/) || [])[1] || '',
-          // Legacy naming is reversed from what you'd expect: td.comment is the
-          // avatar column, td.text holds the comment body.
           avatar: table.querySelector('td.comment img')?.src,
           bodyCell: table.querySelector('td.text') || table.querySelector('td.comment'),
         };
       });
 
-    // Comment pagination (>20 comments): the only page= links on details pages.
     const seenPage = new Set();
     const commentPages = [...doc.querySelectorAll('a[href*="page="]')]
       .map((a) => ({ label: txt(a).replace(/[<>]/g, '').trim(), href: a.href }))
       .filter((p) => p.label && !seenPage.has(p.label) && seenPage.add(p.label));
 
-    // "Also got": the legacy carousel's rows share the browse-row structure, so
-    // parse them like browse torrents (dedupe — the carousel clones slides).
     const alsoGotCell = cells['People who got this also got ...'];
     const seenIds = new Set();
     const alsoGot = alsoGotCell
@@ -2083,8 +2102,6 @@
       tags: tagMatch ? (tagMatch[2].match(/\[([^\]]+)\]/g) || []).map((t) => t.slice(1, -1)) : [],
       download: cells['Download']?.querySelector('a[href*="download.php"]')?.href,
       downloadName: txt(cells['Download']?.querySelector('a[href*="download.php"]')),
-      // Small bookmark button beside the download filename; the icon tells
-      // the current state (bookmarks-add.gif vs the delete variant).
       bookmark: cells['Download']?.querySelector('a[href*="bookmark"]')?.href,
       bookmarkEl: cells['Download']?.querySelector('a[href*="bookmark"]'),
       bookmarked: /remove|del/i.test(
@@ -2093,7 +2110,8 @@
       ),
       labelLinks,
       added: txt(cells['Added']),
-      imdbId,
+      imdbId: imdbIds[0] || null,
+      imdbIds,
       bonus,
       cells,
       comments,
@@ -2525,9 +2543,10 @@
     const content = el(
       'div',
       {},
-      d.imdbId
+      d.imdbIds.length === 1
         ? buildFilmHero(d.imdbId, { titleWrap, titleRow, download: downloadBtn })
         : el('section', { class: 'cgx-panel cgx-detail-head' }, titleWrap, downloadBtn),
+      d.imdbIds.length > 1 ? d.imdbIds.map(buildFilmCard) : null,
       dupePanel,
       d.cells['Description']
         ? el('section', { class: 'cgx-panel' }, el('h3', {}, 'Description'), legacyEmbed(d.cells['Description']))
@@ -3709,16 +3728,30 @@
     );
   }
 
-  /* helpdesk.php — request form */
+  function buildHelpdeskSendPanel(sendForm) {
+    const title = txt(sendForm.querySelector('td.colhead')).trim();
+    const body = document.createElement('div');
+    body.append(...(sendForm.querySelector('td.comment')?.childNodes || []));
+    const controls = [...sendForm.querySelectorAll('input')];
+    sendForm.classList.add('cgx-repform');
+    sendForm.replaceChildren(
+      title ? el('h4', {}, title) : null,
+      legacyEmbed(body),
+      el('div', { class: 'cgx-upfoot' }, controls)
+    );
+    return el('section', { class: 'cgx-panel' }, el('h3', {}, 'Preview'), sendForm);
+  }
 
   function renderHelpdesk(doc) {
     const form = [...doc.forms].find((f) => f.querySelector('textarea'));
+    const sendForm = [...doc.forms].find((f) => f.querySelector('input[type="hidden"][name="msg_problem"]'));
     const holder = form && form.closest('table');
     const hints = holder
       ? [...holder.querySelectorAll('td')]
-          .filter((c) => !c.contains(form) && !c.querySelector('table') && txt(c).trim().length > 20)
+          .filter((c) => !c.closest('form') && !c.contains(form) && !c.querySelector('table') && txt(c).trim().length > 20)
           .map((c) => txt(c).trim())
       : [];
+    const sendPanel = sendForm ? buildHelpdeskSendPanel(sendForm) : null;
     if (form) form.classList.add('cgx-repform');
     armFormEditors(form);
     renderShell(
@@ -3726,10 +3759,11 @@
       el(
         'div',
         {},
+        sendPanel,
         el(
           'section',
           { class: 'cgx-panel' },
-          el('h3', {}, 'Helpdesk'),
+          el('h3', {}, sendForm ? 'Edit' : 'Helpdesk'),
           hints.map((h) => el('p', { class: 'cgx-hint' }, h)),
           form || el('p', {}, 'No helpdesk form found on this page.')
         )
@@ -7322,6 +7356,8 @@
       .cgx-user-section > summary::-webkit-details-marker { display: none; }
       .cgx-user-section > summary::before { content: '▸ '; color: var(--accent); }
       .cgx-user-section[open] > summary::before { content: '▾ '; }
+      .cgx-film-card > summary a { margin-left: 8px; }
+      .cgx-film-card .cgx-hero { margin: 0; border: 0; border-radius: 0 0 10px 10px; box-shadow: none; }
       .cgx-tbl-wrap { overflow-x: auto; padding: 0 12px 12px; }
       .cgx-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
       .cgx-tbl th { text-align: left; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; padding: 6px 10px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.3); }
