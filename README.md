@@ -134,6 +134,13 @@ Syntax check before reloading: `node --check cg-redux.user.js`.
 
 ## Changelog
 
+### 1.0.5
+
+- Edit torrent page now uses the Redux layout, with the BBCode toolbar,
+  live preview and a restyled delete panel
+- My Uploads cards get an edit button, so there is no need to open the
+  torrent page first
+
 ### 1.0.4
 
 - Torrents with more than one IMDB ID get a collapsible film card per title, first one open,
