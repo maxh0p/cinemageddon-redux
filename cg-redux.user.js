@@ -61,6 +61,7 @@
     '/cocks/subscriptions.php': renderCocksSubs,
     '/cocks/endoscope.php': renderCocksScope,
     '/upload.php': renderUpload,
+    '/edit.php': renderEditTorrent,
     '/my.php': renderEditProfile,
     '/forums.php': renderForums,
     '/messages.php': renderMessages,
@@ -312,6 +313,7 @@
       subtitle: txt(sub),
       href: detailsLink.href,
       download: c[1].querySelector('a[href*="download.php"]')?.href,
+      edit: tr.querySelector('a[href*="edit.php?id="]')?.href,
       imdb: imdbHref,
       imdbId,
       letterboxd: imdbId ? `https://letterboxd.com/imdb/${imdbId}/` : null,
@@ -1058,7 +1060,8 @@
               el('span', { class: 'glyph' }, '⌕'),
               el('span', { class: 'sub' }, 'F')
             )
-          : null
+          : null,
+        t.edit ? el('a', { class: 'cgx-btn icon ghost edit', href: t.edit, title: 'Edit torrent' }, el('span', { class: 'glyph' }, '✎')) : null
       )
     );
   }
@@ -4167,27 +4170,28 @@
 
   /* upload.php + my.php — the real legacy forms, reparented and restyled */
 
+  // A control's hint is whatever markup shares its table cell — cloned with
+  // the controls stripped out, so the live control can be moved separately
+  // and the legacy <font>/<b> styling survives.
+  function legacyNote(control) {
+    const cell = control?.closest('td');
+    if (!cell) return null;
+    const c = cell.cloneNode(true);
+    c.querySelectorAll('input, select, textarea').forEach((n) => n.remove());
+    if (!txt(c)) return null;
+    const note = el('div', { class: 'cgx-upnote' });
+    [...c.childNodes].forEach((n) => note.append(n));
+    while (note.firstChild && note.firstChild.nodeName === 'BR') note.firstChild.remove();
+    while (note.lastChild && note.lastChild.nodeName === 'BR') note.lastChild.remove();
+    return note;
+  }
+
   function renderUpload(doc) {
     const form = [...doc.forms].find((f) => (f.getAttribute('action') || '').includes('takeupload'));
     if (!form) throw new Error('no upload form');
     form.classList.add('cgx-repform', 'cgx-upform');
     const ctl = form.elements;
-
-    // A control's hint is whatever markup shares its table cell — cloned with
-    // the controls stripped out, so the live control can be moved separately
-    // and the legacy <font>/<b> styling survives.
-    const noteFor = (name) => {
-      const cell = ctl[name]?.closest('td');
-      if (!cell) return null;
-      const c = cell.cloneNode(true);
-      c.querySelectorAll('input, select, textarea').forEach((n) => n.remove());
-      if (!txt(c)) return null;
-      const note = el('div', { class: 'cgx-upnote' });
-      [...c.childNodes].forEach((n) => note.append(n));
-      while (note.firstChild && note.firstChild.nodeName === 'BR') note.firstChild.remove();
-      while (note.lastChild && note.lastChild.nodeName === 'BR') note.lastChild.remove();
-      return note;
-    };
+    const noteFor = (name) => legacyNote(ctl[name]);
     // Standalone advisory rows (no controls in them) become callouts.
     const callout = (re) => {
       const row = [...form.querySelectorAll('tr')].find(
@@ -4311,6 +4315,93 @@
         {},
         el('div', { class: 'cgx-panel-head cgx-forums-top' }, el('h2', { class: 'cgx-page-title' }, 'Upload a torrent')),
         form
+      )
+    );
+  }
+
+  function renderEditTorrent(doc) {
+    const form = [...doc.forms].find((f) => (f.getAttribute('action') || '').includes('takeedit'));
+    if (!form) throw new Error('no edit form');
+    form.classList.add('cgx-repform', 'cgx-upform');
+    const ctl = form.elements;
+    const id = ctl.id?.value || new URLSearchParams(location.search).get('id');
+
+    const trailerRow = [...form.querySelectorAll('tr')].find(
+      (r) => r.cells.length === 2 && !r.querySelector('input, select, textarea') && /trailer/i.test(txt(r.cells[1]))
+    );
+    const trailerNote = trailerRow ? el('div', { class: 'cgx-upnote' }, ...trailerRow.cells[1].childNodes) : null;
+
+    const field = (label, control, note, cls) =>
+      el('div', { class: 'cgx-upfield' + (cls ? ' ' + cls : '') }, label ? el('label', {}, label) : null, control, note);
+
+    const submitBtn = form.querySelector('input[type="submit"]');
+    submitBtn.style.removeProperty('height');
+    [...form.children].forEach((n) => n.classList.add('cgx-up-legacy'));
+
+    form.append(
+      el(
+        'section',
+        { class: 'cgx-panel' },
+        el('h3', {}, 'Film details'),
+        el(
+          'div',
+          { class: 'cgx-upgrid' },
+          field('Torrent name', ctl.name, legacyNote(ctl.name), 'full'),
+          el(
+            'div',
+            { class: 'cgx-upfield full' },
+            el('div', { class: 'cgx-uprow' }, field('Year', ctl.year, legacyNote(ctl.year)), field('IMDB', ctl.imdb, legacyNote(ctl.imdb)))
+          ),
+          el(
+            'div',
+            { class: 'cgx-upfield full' },
+            el('label', { class: 'cgx-upcheck' }, ctl.noenglish, el('strong', {}, 'No English'), legacyNote(ctl.noenglish))
+          ),
+          field('Category', ctl.type, legacyNote(ctl.type)),
+          field('Comment', ctl.tagline, legacyNote(ctl.tagline), 'full'),
+          field('Trailer', ctl.trailer, trailerNote, 'full')
+        )
+      ),
+      el('section', { class: 'cgx-panel' }, el('h3', {}, 'Description'), bbToolbar(ctl.descr), ctl.descr, previewPanel(ctl.descr)),
+      el('section', { class: 'cgx-panel' }, el('h3', {}, 'Mediainfo'), ctl.mediainfo),
+      el('div', { class: 'cgx-upfoot' }, submitBtn)
+    );
+
+    const delForm = [...doc.forms].find((f) => (f.getAttribute('action') || '').includes('delete.php'));
+    if (delForm) {
+      delForm.classList.add('cgx-repform', 'cgx-upform', 'cgx-delform');
+      const reasons = [...delForm.querySelectorAll('tr')]
+        .filter((r) => r.cells.length >= 2 && r.querySelector('input[type="radio"]'))
+        .map((r) => {
+          const radio = r.querySelector('input[type="radio"]');
+          return el(
+            'div',
+            { class: 'cgx-delrow' },
+            el('label', { class: 'cgx-upcheck' }, radio, el('strong', {}, txt(r.cells[0]).trim())),
+            el('div', { class: 'cgx-delreason' }, ...r.cells[1].childNodes)
+          );
+        });
+      const delBtn = delForm.querySelector('input[type="submit"]');
+      delBtn.style.removeProperty('height');
+      [...delForm.children].forEach((n) => n.classList.add('cgx-up-legacy'));
+      delForm.append(
+        el('section', { class: 'cgx-panel' }, el('h3', {}, 'Delete torrent'), reasons, el('div', { class: 'cgx-upfoot' }, delBtn))
+      );
+    }
+
+    renderShell(
+      doc,
+      el(
+        'div',
+        {},
+        el(
+          'div',
+          { class: 'cgx-panel-head cgx-forums-top' },
+          el('h2', { class: 'cgx-page-title' }, 'Edit torrent'),
+          id ? el('a', { class: 'cgx-btn ghost sm', href: `/details.php?id=${id}` }, '‹ Back to torrent') : null
+        ),
+        form,
+        delForm
       )
     );
   }
@@ -7566,6 +7657,14 @@
       .cgx-upfoot { margin: 4px 0 24px; }
       .cgx-addpage .cgx-upfoot { margin: 20px 0 4px; }
       .cgx-upfoot input[type="submit"] { padding: 11px 30px; font-size: 15px; }
+      .cgx-delrow { display: grid; grid-template-columns: 170px 1fr; align-items: center; gap: 12px; padding: 6px 0; }
+      .cgx-delreason { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13.5px; }
+      .cgx-delreason input[type="text"] { flex: 1; min-width: 0; }
+      .cgx-delreason font { font-size: inherit; }
+      .cgx-delform .cgx-upfoot { margin: 12px 0 0; }
+      .cgx-delform input[type="submit"] { background: var(--red); }
+      .cgx-delform input[type="submit"]:hover { background: var(--red); filter: brightness(1.1); }
+      @media (max-width: 600px) { .cgx-delrow { grid-template-columns: 1fr; gap: 4px; } }
       /* profile edit (shares the cgx-up* kit) */
       /* Radio groups keep their legacy inline flow — the option labels are
          loose text nodes, so flex would split radio from label */
@@ -7966,6 +8065,7 @@
       .cgx-snatch { color: var(--muted); }
 
       .cgx-actions { display: grid; grid-template-columns: repeat(3, 34px); gap: 6px; flex: none; }
+      .cgx-actions:has(.edit) { grid-template-columns: repeat(4, 34px); }
       .cgx-btn.icon { width: 34px; height: 34px; padding: 0; font-size: 13px; }
       .cgx-btn.bmark { color: var(--muted) !important; font-size: 15px; }
       .cgx-btn.bmark.on { color: var(--accent) !important; border-color: var(--accent); }
