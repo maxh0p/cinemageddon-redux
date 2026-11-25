@@ -2,7 +2,7 @@
 // @name         Cinemageddon Redux
 // @namespace    cg-redux
 // @description  Modern frontend rework for cinemageddon.net, rendered from the legacy server HTML
-// @version      1.0.5
+// @version      1.0.6
 // @author       maxh0p
 // @license      MIT
 // @icon         https://cinemageddon.net/favicon.ico
@@ -11,6 +11,7 @@
 // @downloadURL  https://raw.githubusercontent.com/maxh0p/cinemageddon-redux/main/cg-redux.user.js
 // @updateURL    https://raw.githubusercontent.com/maxh0p/cinemageddon-redux/main/cg-redux.user.js
 // @match        https://cinemageddon.net/*
+// @match        http://cinemageddon.net/*
 // @run-at       document-start
 // @grant        GM_xmlhttpRequest
 // @grant        GM_registerMenuCommand
@@ -21,7 +22,12 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.0.5';
+  if (location.protocol === 'http:') {
+    location.replace(location.href.replace(/^http:/, 'https:'));
+    return;
+  }
+
+  const VERSION = '1.0.6';
   const SCRIPT_URL = 'https://raw.githubusercontent.com/maxh0p/cinemageddon-redux/main/cg-redux.user.js';
 
   // Pages we take over. Anything not listed renders as the legacy site.
@@ -285,15 +291,12 @@
     const dateParts = lines(c[3]);
     const sizeParts = lines(c[4]);
 
-    // "Title [Country] [Year/Rip/...]" → name + bracket tags
     const raw = txt(detailsLink);
     const tagMatch = raw.match(/^(.*?)\s*(\[.+)$/);
     const tags = tagMatch
       ? (tagMatch[2].match(/\[([^\]]+)\]/g) || []).map((t) => t.slice(1, -1))
       : [];
 
-    // Bonus torrents carry a spinning-coin gif (pic/golden3.gif, golden4.gif, …)
-    // whose alt/title holds the amount, e.g. "40% bonus".
     const bonusImg = c[1].querySelector('img[src*="golden"], img[src*="halloween"]');
     const bonus = bonusImg
       ? (bonusImg.getAttribute('alt') || bonusImg.getAttribute('title') || '').trim() || 'bonus'
@@ -314,7 +317,7 @@
       href: detailsLink.href,
       download: c[1].querySelector('a[href*="download.php"]')?.href,
       edit: tr.querySelector('a[href*="edit.php?id="]')?.href,
-      imdb: imdbHref,
+      imdb: imdbId ? `https://www.imdb.com/title/${imdbId}/` : imdbHref,
       imdbId,
       letterboxd: imdbId ? `https://letterboxd.com/imdb/${imdbId}/` : null,
       bookmark: bookmarkLink?.href,
@@ -345,10 +348,16 @@
     const parseTable = (t) =>
       t ? [...t.rows].map(parseTorrentRow).filter(Boolean) : [];
 
-    // Pagination links (keep original hrefs)
-    const pageLinks = [...doc.querySelectorAll('a[href*="page="]')]
-      .map((a) => ({ label: txt(a).replace(/[<>]/g, '').trim(), href: a.href }))
-      .filter((p) => /^[\d\s\-,]+$|^prev$|^next$/i.test(p.label));
+    const isPageLabel = (label) => /^[\d\s\-,]+$|^prev$|^next$/i.test(label);
+    const pageLabel = (node) => txt(node).replace(/[<>]/g, '').trim();
+    const pagerBlock = [...doc.querySelectorAll('a[href*="page="]')]
+      .find((a) => isPageLabel(pageLabel(a)))
+      ?.closest('p, td, div, center');
+    const isCurrentRange = (node) => node.tagName === 'B' && !node.closest('a') && /^\d+\s*-\s*\d+$/.test(txt(node));
+    const pageLinks = [...(pagerBlock?.querySelectorAll('a[href*="page="], b') || [])]
+      .filter((node) => node.tagName === 'A' || isCurrentRange(node))
+      .map((node) => ({ label: pageLabel(node), href: node.href }))
+      .filter((p) => isPageLabel(p.label));
     const seen = new Set();
     const pageOrder = (p) => (/^prev$/i.test(p.label) ? -1 : /^next$/i.test(p.label) ? 1 : 0);
     const pages = pageLinks
@@ -356,10 +365,6 @@
       .sort((a, b) => pageOrder(a) - pageOrder(b))
       .map((p) => ({ ...p, label: /^prev$/i.test(p.label) ? '‹ Prev' : /^next$/i.test(p.label) ? 'Next ›' : p.label }));
 
-    // Legacy forms — our UI drives these, so search/filter behavior is identical.
-    // The search field must come from the form that ALSO holds the filter
-    // checkboxes (the main browse form) — the sidebar site-search form matches
-    // `elements.search` too, and submitting that one drops every filter.
     const searchForm =
       [...doc.forms].find((f) => f.elements.search && [...f.elements].some((e) => e.type === 'checkbox')) ||
       [...doc.forms].find((f) => f.elements.search);
@@ -372,15 +377,10 @@
           .map((box) => ({
             box,
             label: txt(box.nextElementSibling) || box.name,
-            // Legacy groups these as "Category filter:" / "Show only:"; the
-            // odd one out is `descr` ("Also search descriptions?"), which
-            // belongs with the search box, not the filters.
             group: /^c\d+$/.test(box.name) ? 'category' : box.name === 'descr' ? 'search' : 'show',
           }))
       : [];
 
-    // Sort links live in the main table's header row — text links (Name,
-    // Added, Size) plus icon-only columns whose meaning is in the img alt.
     const SORT_ALIASES = { favourited: 'Bookmarked', completed: 'Snatched' };
     const sorts = mainTable
       ? [...mainTable.rows[0].querySelectorAll('a')]
@@ -392,12 +392,6 @@
           .filter((s) => s.label)
       : [];
 
-    // Featured refresh countdown — legacy renders it as static text in the
-    // heading above the featured table ("… Next update in 23h 13m 48s.").
-    // Matched against the smallest element in the document that still contains
-    // the phrase, rather than the featured table's previous sibling: the note
-    // has moved around inside legacy's markup before, and losing the countdown
-    // to a stray wrapper element is the failure mode we keep hitting.
     let featuredNote = '';
     let featuredEta = null;
     const noteHost = [...doc.querySelectorAll('td, div, p, b, font, span, h1, h2')]
@@ -405,8 +399,6 @@
       .pop();
     if (noteHost) {
       featuredNote = txt(noteHost);
-      // Should the phrase ever land in a big wrapper, keep only the countdown
-      // sentence and the one before it (that's where the "50% bonus" lives).
       if (featuredNote.length > 220) {
         const parts = featuredNote.split(/(?<=\.)\s+/);
         const i = parts.findIndex((s) => /next update in/i.test(s));
@@ -1508,8 +1500,6 @@
     };
     searchInput.addEventListener('keydown', (e) => e.key === 'Enter' && submitSearch());
 
-    // Click a card's category icon → filter the list to that category alone
-    // (checks the matching legacy checkbox, clears the rest + search, submits).
     const filterByCategory = (name) => {
       const cats = data.filters.filter((f) => f.group === 'category');
       const target = cats.find((f) => f.label.toLowerCase() === name.toLowerCase());
@@ -1526,8 +1516,6 @@
       return card;
     };
 
-    // "Featured torrents give a 50% bonus." → "50% bonus" pill; falls back to
-    // the sentence minus the countdown part if the phrasing ever changes.
     const bonusPill = (d) => {
       if (!d.featuredNote) return null;
       const bonus =
@@ -1599,8 +1587,6 @@
     const descrFilter = data.filters.find((f) => f.group === 'search');
     const descrRow = descrFilter ? chipRow('Search options', [{ ...descrFilter, label: 'Also search descriptions' }]) : null;
 
-    // Cmd-K-style dropdown under the search bar: recent searches + all the
-    // filter groups live in a panel that opens on focus.
     let recentSection = null;
     if (recents.length) {
       recentSection = el(
@@ -1658,7 +1644,6 @@
     );
     const searchWrap = el('div', { class: 'cgx-searchwrap' }, searchInput, panel);
 
-    // Filters hidden in the panel still deserve a visible signal.
     const activeCount = data.filters.filter((f) => f.group !== 'search' && f.box.checked).length;
     if (activeCount) {
       searchWrap.insertBefore(
@@ -1693,8 +1678,6 @@
       }
     });
 
-    // Active sort comes from the page URL (orderby=…&dir=…); with no orderby
-    // the legacy default is newest first, i.e. Added descending.
     const q = new URLSearchParams(location.search);
     const curBy = q.get('orderby');
     const curDir = (q.get('dir') || 'DESC').toUpperCase();
@@ -1718,8 +1701,6 @@
         )
       : null;
 
-    // Zero results: a proper card instead of a silently blank list, with a
-    // way out.
     const clearAll = () => {
       data.filters.forEach((f) => (f.box.checked = false));
       if (data.searchForm) data.searchForm.elements.search.value = '';
@@ -1761,7 +1742,11 @@
         ? el(
             'nav',
             { class: 'cgx-pages' },
-            data.pages.map((p) => el('a', { class: 'cgx-page', href: p.href }, p.label))
+            data.pages.map((p) =>
+              p.href
+                ? el('a', { class: 'cgx-page', href: p.href }, p.label)
+                : el('span', { class: 'cgx-page active' }, p.label)
+            )
           )
         : null
     );
@@ -4784,8 +4769,6 @@
     );
   }
 
-  // tags.php — BB code reference. One 4x2 table per tag:
-  // Description / Syntax / Example / Result.
   // Last resort for the reference pages: lift the biggest block of content out
   // of the legacy table nest and show it in a styled panel. Not as good as a
   // parsed layout, but far better than dropping back to the 2004 markup.
@@ -4849,9 +4832,27 @@
     );
   }
 
+  function tagTestOutput(form, firstTagTable) {
+    const output = el('div', {});
+    for (let node = form.nextSibling; node && !node.contains(firstTagTable); node = node.nextSibling) {
+      output.append(node.cloneNode(true));
+    }
+    const firstTagHeading = [...output.children].at(-1);
+    if (firstTagHeading?.tagName === 'P') firstTagHeading.remove();
+    output.querySelectorAll(':scope > hr, :scope > p:empty').forEach((n) => n.remove());
+    return txt(output) || output.querySelector('img, iframe, video, embed, object') ? output : null;
+  }
+
   function renderTags(doc) {
     const tables = leafTables(doc).filter((t) => /Description:/i.test(txt(t)));
     if (!tables.length) return legacyPage(doc, 'BB codes');
+    const testForm = [...doc.forms].find((f) => f.elements.test?.tagName === 'TEXTAREA');
+    const testOutput = testForm ? tagTestOutput(testForm, tables[0]) : null;
+    if (testForm) {
+      testForm.classList.add('cgx-repform');
+      testForm.querySelector('input[type="submit"]')?.removeAttribute('style');
+      armFormEditors(testForm);
+    }
     const cards = tables.map((t) => {
       const get = (label) => {
         const r = [...t.rows].find((x) => x.cells[1] && new RegExp('^' + label, 'i').test(txt(x.cells[0])));
@@ -4872,6 +4873,15 @@
         'div',
         {},
         el('h2', { class: 'cgx-page-title' }, `BB codes (${cards.length})`),
+        testForm
+          ? el(
+              'section',
+              { class: 'cgx-panel cgx-reply' },
+              el('h3', {}, 'Test your code'),
+              testForm,
+              testOutput ? el('div', { class: 'cgx-tag-result' }, legacyEmbed(testOutput)) : null
+            )
+          : null,
         el(
           'div',
           { class: 'cgx-tag-grid' },

@@ -110,6 +110,7 @@ Work against a local checkout with a dev-loader stub so edits apply on plain pag
 // @namespace    cg-redux
 // @version      1.0
 // @match        https://cinemageddon.net/*
+// @match        http://cinemageddon.net/*
 // @run-at       document-start
 // @require      file:///path/to/your/checkout/cg-redux.user.js
 // @grant        GM_xmlhttpRequest
@@ -133,6 +134,14 @@ stub's grants.
 Syntax check before reloading: `node --check cg-redux.user.js`.
 
 ## Changelog
+
+### 1.0.6
+
+- BB codes page shows the test box and "Test this code!" button again, with the
+  BBCode toolbar and live preview
+- IMDB button on browse cards opens the first title on torrents with several IMDB IDs
+- Posting a forum reply no longer lands on the old layout: `http://` pages are moved to `https://`
+- Browse pager shows the current range as an active button
 
 ### 1.0.5
 
