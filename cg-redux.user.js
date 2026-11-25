@@ -4850,6 +4850,7 @@
     const testOutput = testForm ? tagTestOutput(testForm, tables[0]) : null;
     if (testForm) {
       testForm.classList.add('cgx-repform');
+      testForm.querySelector('input[type="submit"]')?.removeAttribute('style');
       armFormEditors(testForm);
     }
     const cards = tables.map((t) => {
